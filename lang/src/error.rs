@@ -44,6 +44,8 @@ pub enum ErrorCode {
     ConstraintAssociatedInit,
     #[msg("A close constraint was violated")]
     ConstraintClose,
+    #[msg("Ana ddress constraint was violated")]
+    ConstraintAddress,
 
     // Accounts.
     #[msg("The account discriminator was already set on this account")]

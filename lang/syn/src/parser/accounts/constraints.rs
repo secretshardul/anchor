@@ -1,5 +1,5 @@
 use crate::{
-    ConstraintAssociated, ConstraintAssociatedGroup, ConstraintAssociatedPayer,
+    ConstraintAddress, ConstraintAssociated, ConstraintAssociatedGroup, ConstraintAssociatedPayer,
     ConstraintAssociatedSpace, ConstraintAssociatedWith, ConstraintBelongsTo, ConstraintClose,
     ConstraintExecutable, ConstraintGroup, ConstraintInit, ConstraintLiteral, ConstraintMut,
     ConstraintOwner, ConstraintRaw, ConstraintRentExempt, ConstraintSeeds, ConstraintSeedsGroup,
@@ -154,6 +154,12 @@ pub fn parse_token(stream: ParseStream) -> ParseResult<ConstraintToken> {
                         sol_dest: stream.parse()?,
                     },
                 )),
+                "address" => ConstraintToken::Address(Context::new(
+                    span,
+                    ConstraintAddress {
+                        address: stream.parse()?,
+                    },
+                )),
                 _ => Err(ParseError::new(ident.span(), "Invalid attribute"))?,
             }
         }
@@ -181,6 +187,7 @@ pub struct ConstraintGroupBuilder<'ty> {
     pub associated_space: Option<Context<ConstraintAssociatedSpace>>,
     pub associated_with: Vec<Context<ConstraintAssociatedWith>>,
     pub close: Option<Context<ConstraintClose>>,
+    pub address: Option<Context<ConstraintAddress>>,
 }
 
 impl<'ty> ConstraintGroupBuilder<'ty> {
@@ -203,6 +210,7 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
             associated_space: None,
             associated_with: Vec::new(),
             close: None,
+            address: None,
         }
     }
     pub fn build(mut self) -> ParseResult<ConstraintGroup> {
@@ -251,6 +259,7 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
             associated_space,
             associated_with,
             close,
+            address,
         } = self;
 
         // Converts Option<Context<T>> -> Option<T>.
@@ -295,6 +304,7 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
                 space: associated_space.map(|s| s.space.clone()),
             }),
             close: into_inner!(close),
+            address: into_inner!(address),
         })
     }
 
@@ -316,6 +326,7 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
             ConstraintToken::AssociatedSpace(c) => self.add_associated_space(c),
             ConstraintToken::AssociatedWith(c) => self.add_associated_with(c),
             ConstraintToken::Close(c) => self.add_close(c),
+            ConstraintToken::Address(c) => self.add_address(c),
         }
     }
 
@@ -346,6 +357,14 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
             return Err(ParseError::new(c.span(), "close already provided"));
         }
         self.close.replace(c);
+        Ok(())
+    }
+
+    fn add_address(&mut self, c: Context<ConstraintAddress>) -> ParseResult<()> {
+        if self.address.is_some() {
+            return Err(ParseError::new(c.span(), "address already provided"));
+        }
+        self.address.replace(c);
         Ok(())
     }
 

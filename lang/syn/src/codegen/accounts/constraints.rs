@@ -1,8 +1,8 @@
 use crate::{
-    CompositeField, Constraint, ConstraintAssociatedGroup, ConstraintBelongsTo, ConstraintClose,
-    ConstraintExecutable, ConstraintGroup, ConstraintInit, ConstraintLiteral, ConstraintMut,
-    ConstraintOwner, ConstraintRaw, ConstraintRentExempt, ConstraintSeedsGroup, ConstraintSigner,
-    ConstraintState, Field, Ty,
+    CompositeField, Constraint, ConstraintAddress, ConstraintAssociatedGroup, ConstraintBelongsTo,
+    ConstraintClose, ConstraintExecutable, ConstraintGroup, ConstraintInit, ConstraintLiteral,
+    ConstraintMut, ConstraintOwner, ConstraintRaw, ConstraintRentExempt, ConstraintSeedsGroup,
+    ConstraintSigner, ConstraintState, Field, Ty,
 };
 use quote::quote;
 use syn::LitInt;
@@ -52,6 +52,7 @@ pub fn linearize(c_group: &ConstraintGroup) -> Vec<Constraint> {
         state,
         associated,
         close,
+        address,
     } = c_group.clone();
 
     let mut constraints = Vec::new();
@@ -99,6 +100,9 @@ pub fn linearize(c_group: &ConstraintGroup) -> Vec<Constraint> {
     if let Some(c) = close {
         constraints.push(Constraint::Close(c));
     }
+    if let Some(c) = address {
+        constraints.push(Constraint::Address(c));
+    }
     constraints
 }
 
@@ -117,6 +121,7 @@ fn generate_constraint(f: &Field, c: &Constraint) -> proc_macro2::TokenStream {
         Constraint::State(c) => generate_constraint_state(f, c),
         Constraint::AssociatedGroup(c) => generate_constraint_associated(f, c),
         Constraint::Close(c) => generate_constraint_close(f, c),
+        Constraint::Address(c) => generate_constraint_address(f, c),
     }
 }
 
@@ -125,6 +130,16 @@ fn generate_constraint_composite(_f: &CompositeField, c: &Constraint) -> proc_ma
         Constraint::Raw(c) => generate_constraint_raw(c),
         Constraint::Literal(c) => generate_constraint_literal(c),
         _ => panic!("Invariant violation"),
+    }
+}
+
+fn generate_constraint_address(f: &Field, c: &ConstraintAddress) -> proc_macro2::TokenStream {
+    let field = &f.ident;
+    let addr = &c.address;
+    quote! {
+        if #field.to_account_info().key == &#addr {
+            return Err(anchor_lang::__private::ErrorCode::ConstraintAddress.into());
+        }
     }
 }
 

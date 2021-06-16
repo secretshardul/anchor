@@ -286,3 +286,24 @@ pub mod __private {
     pub use crate::state::PROGRAM_STATE_SEED;
     pub const CLOSED_ACCOUNT_DISCRIMINATOR: [u8; 8] = [255, 255, 255, 255, 255, 255, 255, 255];
 }
+
+/// Returns the program-derived-address seeds used for creating the associated
+/// account.
+#[macro_export]
+macro_rules! associated_seeds {
+    ($associated:expr) => {
+        &[
+            b"anchor",
+            $associated.to_account_info().key.as_ref(),
+            &[anchor_lang::Bump::seed(&*$associated)],
+        ]
+    };
+    ($associated:expr, $($with:expr),*) => {
+        &[
+            b"anchor",
+            $associated.to_account_info().key.as_ref(),
+						$($with.to_account_info().key.as_ref()),*
+            &[anchor_lang::Bump::seed(&*$associated)],
+        ]
+    };
+}

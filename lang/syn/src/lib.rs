@@ -268,6 +268,7 @@ pub struct ConstraintGroup {
     literal: Vec<ConstraintLiteral>,
     raw: Vec<ConstraintRaw>,
     close: Option<ConstraintClose>,
+    address: Option<ConstraintAddress>,
 }
 
 impl ConstraintGroup {
@@ -306,6 +307,7 @@ pub enum Constraint {
     State(ConstraintState),
     AssociatedGroup(ConstraintAssociatedGroup),
     Close(ConstraintClose),
+    Address(ConstraintAddress),
 }
 
 // Constraint token is a single keyword in a `#[account(<TOKEN>)]` attribute.
@@ -327,6 +329,7 @@ pub enum ConstraintToken {
     AssociatedPayer(Context<ConstraintAssociatedPayer>),
     AssociatedSpace(Context<ConstraintAssociatedSpace>),
     AssociatedWith(Context<ConstraintAssociatedWith>),
+    Address(Context<ConstraintAddress>),
 }
 
 impl Parse for ConstraintToken {
@@ -361,7 +364,12 @@ pub struct ConstraintRaw {
 
 #[derive(Debug, Clone)]
 pub struct ConstraintOwner {
-    pub owner_target: Ident,
+    pub owner_target: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstraintAddress {
+    pub address: Expr,
 }
 
 #[derive(Debug, Clone)]
@@ -394,7 +402,7 @@ pub struct ConstraintState {
 #[derive(Debug, Clone)]
 pub struct ConstraintAssociatedGroup {
     pub is_init: bool,
-    pub associated_target: Ident,
+    pub associated_target: Expr,
     pub associated_seeds: Vec<Ident>,
     pub payer: Option<Ident>,
     pub space: Option<LitInt>,
@@ -402,7 +410,7 @@ pub struct ConstraintAssociatedGroup {
 
 #[derive(Debug, Clone)]
 pub struct ConstraintAssociated {
-    pub target: Ident,
+    pub target: Expr,
 }
 
 #[derive(Debug, Clone)]
