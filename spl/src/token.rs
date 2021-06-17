@@ -155,14 +155,6 @@ pub fn set_authority<'a, 'b, 'c, 'info>(
     )
 }
 
-pub fn assign_and_initialize() -> ProgramResult {
-    // Assign to the system program.
-
-    // Initialize the token.
-
-    Ok(())
-}
-
 #[derive(Accounts)]
 pub struct Transfer<'info> {
     pub from: AccountInfo<'info>,
@@ -202,11 +194,6 @@ pub struct InitializeAccount<'info> {
 pub struct SetAuthority<'info> {
     pub current_authority: AccountInfo<'info>,
     pub account_or_mint: AccountInfo<'info>,
-}
-
-#[derive(Accounts)]
-pub struct AssignAndInitialize<'info> {
-    // todo
 }
 
 #[derive(Clone)]

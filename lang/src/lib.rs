@@ -298,12 +298,12 @@ macro_rules! associated_seeds {
             &[anchor_lang::Bump::seed(&*$associated)],
         ]
     };
-    ($associated:expr, $($with:expr),*) => {
+    ($associated:expr, $($with:expr),+) => {
         &[
-            b"anchor",
+            b"anchor".as_ref(),
             $associated.to_account_info().key.as_ref(),
-						$($with.to_account_info().key.as_ref()),*
-            &[anchor_lang::Bump::seed(&*$associated)],
+            $($with.to_account_info().key.as_ref()),+,
+            &[anchor_lang::Bump::seed(&*$associated)][..],
         ]
     };
 }

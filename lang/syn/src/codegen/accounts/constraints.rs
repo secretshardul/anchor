@@ -241,11 +241,8 @@ pub fn generate_constraint_rent_exempt(
     c: &ConstraintRentExempt,
 ) -> proc_macro2::TokenStream {
     let ident = &f.ident;
-    let info = match f.ty {
-        Ty::AccountInfo => quote! { #ident },
-        Ty::ProgramAccount(_) => quote! { #ident.to_account_info() },
-        Ty::Loader(_) => quote! { #ident.to_account_info() },
-        _ => panic!("Invalid syntax: rent exemption cannot be specified."),
+    let info = quote! {
+            #ident.to_account_info()
     };
     match c {
         ConstraintRentExempt::Skip => quote! {},
@@ -359,8 +356,18 @@ pub fn generate_pda(
 ) -> proc_macro2::TokenStream {
     let field = &f.ident;
     let (account_ty, is_zero_copy) = match &f.ty {
-        Ty::ProgramAccount(ty) => (&ty.account_ident, false),
-        Ty::Loader(ty) => (&ty.account_ident, true),
+        Ty::ProgramAccount(ty) => {
+            let ty = &ty.account_ident;
+            (quote! {#ty}, false)
+        }
+        Ty::Loader(ty) => {
+            let ty = &ty.account_ident;
+            (quote! {#ty}, true)
+        }
+        Ty::CpiAccount(ty) => {
+            let ty = &ty.account_ident;
+            (quote! {#ty}, false)
+        }
         _ => panic!("Invalid type for initializing a program derived address"),
     };
 
@@ -385,23 +392,30 @@ pub fn generate_pda(
         },
     };
 
-    let account_wrapper_ty = match is_zero_copy {
-        false => quote! {
+    let account_wrapper_ty = match &f.ty {
+        Ty::ProgramAccount(_) => quote! {
             anchor_lang::ProgramAccount
         },
-        true => quote! {
+        Ty::Loader(_) => quote! {
             anchor_lang::Loader
         },
+        Ty::CpiAccount(_) => quote! {
+            anchor_lang::CpiAccount
+        },
+        _ => panic!("Invalid type"),
     };
     let nonce_assignment = match assign_nonce {
         false => quote! {},
-        true => match is_zero_copy {
-            false => quote! {
-                pa.__nonce = nonce;
-            },
-            // Zero copy is not deserialized, so the data must be lazy loaded.
-            true => quote! {
-                pa.load_init()?.__nonce = nonce;
+        true => match &f.ty {
+            Ty::CpiAccount(_) => quote! {},
+            _ => match is_zero_copy {
+                false => quote! {
+                        pa.__nonce = nonce;
+                },
+                // Zero copy is not deserialized, so the data must be lazy loaded.
+                true => quote! {
+                        pa.load_init()?.__nonce = nonce;
+                },
             },
         },
     };
