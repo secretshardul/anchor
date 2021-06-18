@@ -269,15 +269,22 @@ fn generate_constraint_seeds_init(f: &Field, c: &ConstraintSeedsGroup) -> proc_m
             let payer = #p.to_account_info();
         }
     };
+    let seeds_constraint = generate_constraint_seeds_address(f, c);
     let seeds_with_nonce = {
         let s = &c.seeds;
-        let seeds_constraint = generate_constraint_seeds_address(f, c);
         quote! {
-            #seeds_constraint
-            let seeds = [#s];
+            [#s]
         }
     };
-    generate_pda(f, seeds_with_nonce, payer, &c.space, false, None)
+    generate_pda(
+        f,
+        seeds_constraint,
+        seeds_with_nonce,
+        payer,
+        &c.space,
+        false,
+        None,
+    )
 }
 
 fn generate_constraint_seeds_address(
@@ -321,31 +328,37 @@ pub fn generate_constraint_associated_init(
             let payer = #p.to_account_info();
         },
     };
-    let associated_seeds_constraint = generate_constraint_associated_seeds(f, c);
+    let seeds_constraint = generate_constraint_associated_seeds(f, c);
     let seeds_with_nonce = match c.associated_seeds.len() {
         0 => quote! {
-            #associated_seeds_constraint
-            let seeds = [
+            [
                 &b"anchor"[..],
                 #associated_target.to_account_info().key.as_ref(),
                 &[nonce],
-            ];
+            ]
         },
         _ => {
             let seeds = to_seeds_tts(&c.associated_seeds);
             quote! {
-                #associated_seeds_constraint
-                let seeds = [
+                [
                     &b"anchor"[..],
                     #associated_target.to_account_info().key.as_ref(),
                     #seeds
                     &[nonce],
-                ];
+                ]
             }
         }
     };
 
-    generate_pda(f, seeds_with_nonce, payer, &c.space, true, c.kind.as_ref())
+    generate_pda(
+        f,
+        seeds_constraint,
+        seeds_with_nonce,
+        payer,
+        &c.space,
+        true,
+        c.kind.as_ref(),
+    )
 }
 
 fn parse_ty(f: &Field) -> (&syn::Ident, proc_macro2::TokenStream, bool) {
@@ -377,6 +390,7 @@ fn parse_ty(f: &Field) -> (&syn::Ident, proc_macro2::TokenStream, bool) {
 
 pub fn generate_pda(
     f: &Field,
+    seeds_constraint: proc_macro2::TokenStream,
     seeds_with_nonce: proc_macro2::TokenStream,
     payer: proc_macro2::TokenStream,
     space: &Option<LitInt>,
@@ -428,8 +442,7 @@ pub fn generate_pda(
             let #field: #account_wrapper_ty<#account_ty> = {
                 #space
                 #payer
-                #seeds_with_nonce
-                let signer = &[&seeds[..]];
+                #seeds_constraint
 
                 // Fund the account for rent exemption.
                 let required_lamports = rent
@@ -461,7 +474,7 @@ pub fn generate_pda(
                         #field.to_account_info(),
                         system_program.clone(),
                     ],
-                    signer
+                    &[&#seeds_with_nonce[..]],
                 )?;
 
                 // Assign to the spl token program.
@@ -475,7 +488,7 @@ pub fn generate_pda(
                         #field.to_account_info(),
                         system_program.to_account_info(),
                     ],
-                    signer,
+                    &[&#seeds_with_nonce[..]],
                 )?;
 
                 // Initialize the token account.
@@ -498,6 +511,7 @@ pub fn generate_pda(
                 let #field: #account_wrapper_ty<#account_ty> = {
                     #space
                     #payer
+                    #seeds_constraint
 
                     let lamports = rent.minimum_balance(space);
                     let ix = anchor_lang::solana_program::system_instruction::create_account(
@@ -508,8 +522,7 @@ pub fn generate_pda(
                         program_id,
                     );
 
-                    #seeds_with_nonce
-                    let signer = &[&seeds[..]];
+
                     anchor_lang::solana_program::program::invoke_signed(
                         &ix,
                         &[
@@ -518,7 +531,7 @@ pub fn generate_pda(
                             payer.to_account_info(),
                             system_program.to_account_info(),
                         ],
-                        signer,
+                        &[&#seeds_with_nonce[..]]
                     ).map_err(|e| {
                         anchor_lang::solana_program::msg!("Unable to create associated account");
                         e
@@ -610,7 +623,7 @@ fn to_seeds_tts(seeds: &[syn::Expr]) -> proc_macro2::TokenStream {
     let seed_0 = &seeds[0];
     let mut tts = match seed_0 {
         syn::Expr::Path(_) => quote! {
-            #seed_0.to_account_info().key.as_ref(),
+            anchor_lang::Key::key(&#seed_0).as_ref(),
         },
         _ => quote! {
             #seed_0,
@@ -620,7 +633,7 @@ fn to_seeds_tts(seeds: &[syn::Expr]) -> proc_macro2::TokenStream {
         tts = match seed {
             syn::Expr::Path(_) => quote! {
                 #tts
-                #seed.to_account_info().key.as_ref(),
+                anchor_lang::Key::key(&#seed).as_ref(),
             },
             _ => quote! {
                 #tts

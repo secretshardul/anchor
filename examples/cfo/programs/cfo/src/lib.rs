@@ -1,10 +1,11 @@
 use anchor_lang::associated_seeds;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{system_instruction, system_program};
-use anchor_spl::dex;
 use anchor_spl::token::{self, Mint, TokenAccount};
+use anchor_spl::{dex, mint};
 
-pub const SRM_MINT: &str = "SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt";
+// TODO: use declare_id! and remove this..
+pub const SWAP_PID: &str = "22Y43yTVxuUkoRKdm9thyRhQ3SdgQS7c7kB6UNCiaczD";
 
 /// CFO is the program representing the Serum chief financial officer. It is
 /// the program responsible for collecting and distributing fees from the Serum
@@ -47,7 +48,6 @@ pub mod cfo {
         Ok(())
     }
 
-    /*
     /// Convert the entire balance of a usd(x) token (owned by the CFO) into SRM
     /// by trading on the DEX.
     #[access_control(is_not_trading())]
@@ -59,10 +59,14 @@ pub mod cfo {
         let side = swap::Side::Bid;
         let amount = token::accessor::amount(&ctx.accounts.from_vault)?;
         let cpi_ctx: CpiContext<'_, '_, '_, 'info, swap::Swap<'info>> = (&*ctx.accounts).into();
-        swap::cpi::swap(cpi_ctx, side, amount, min_exchange_rate.into())?;
+        swap::cpi::swap(
+            cpi_ctx.with_signer(&[seeds]),
+            side,
+            amount,
+            min_exchange_rate.into(),
+        )?;
         Ok(())
     }
-         */
 
     /// A transitive version of `swap_usdx_to_srm` for arbitrary, non usdx
     /// tokens.
@@ -111,14 +115,7 @@ pub struct CreateOfficer<'info> {
 #[derive(Accounts)]
 pub struct CreateOfficerToken<'info> {
     officer: ProgramAccount<'info, Officer>,
-    #[account(
-				init,
-				token,
-				associated = officer,
-				with = b"my-seed", with = mint,
-				space = 165,
-				payer = payer,
-		)]
+    #[account(init, token, associated = officer, with = mint, space = 165, payer = payer)]
     token: CpiAccount<'info, TokenAccount>,
     #[account(owner = token_program)]
     mint: CpiAccount<'info, Mint>,
@@ -163,13 +160,53 @@ pub struct Dex<'info> {
 pub struct SwapToSrm<'info> {
     #[account(associated = dex_program)]
     officer: ProgramAccount<'info, Officer>,
-    #[account(owner = token_program)]
+    market: DexMarketAccounts<'info>,
+    // Allow any vault to be used for the *from* token.
     from_vault: AccountInfo<'info>,
-    #[account(constraint = token::accessor::mint(&srm_vault)? == pk!(SRM_MINT))]
+    #[account(associated = officer, with = mint::SRM)]
     srm_vault: AccountInfo<'info>,
+    #[account(address = pk!(SWAP_PID))]
+    swap_program: AccountInfo<'info>,
+    #[account(address = dex::ID)]
     dex_program: AccountInfo<'info>,
-    #[account(address = spl_token::ID)]
+    #[account(address = token::ID)]
     token_program: AccountInfo<'info>,
+    rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts, Clone)]
+pub struct DexMarketAccounts<'info> {
+    #[account(mut)]
+    market: AccountInfo<'info>,
+    #[account(mut)]
+    open_orders: AccountInfo<'info>,
+    #[account(mut)]
+    request_queue: AccountInfo<'info>,
+    #[account(mut)]
+    event_queue: AccountInfo<'info>,
+    #[account(mut)]
+    bids: AccountInfo<'info>,
+    #[account(mut)]
+    asks: AccountInfo<'info>,
+    // The `spl_token::Account` that funds will be taken from, i.e., transferred
+    // from the user into the market's vault.
+    //
+    // For bids, this is the base currency. For asks, the quote.
+    #[account(mut)]
+    order_payer_token_account: AccountInfo<'info>,
+    // Also known as the "base" currency. For a given A/B market,
+    // this is the vault for the A mint.
+    #[account(mut)]
+    coin_vault: AccountInfo<'info>,
+    // Also known as the "quote" currency. For a given A/B market,
+    // this is the vault for the B mint.
+    #[account(mut)]
+    pc_vault: AccountInfo<'info>,
+    // PDA owner of the DEX's token accounts for base + quote currencies.
+    vault_signer: AccountInfo<'info>,
+    // User wallets.
+    #[account(mut)]
+    coin_wallet: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -178,7 +215,7 @@ pub struct SwapToSrmTransitive<'info> {
     officer: ProgramAccount<'info, Officer>,
     #[account(owner = token_program)]
     from_vault: AccountInfo<'info>,
-    #[account(constraint = token::accessor::mint(&srm_vault)? == pk!(SRM_MINT))]
+    #[account(constraint = token::accessor::mint(&srm_vault)? == mint::SRM)]
     srm_vault: AccountInfo<'info>,
     dex_program: AccountInfo<'info>,
     #[account(address = spl_token::ID)]
@@ -189,7 +226,7 @@ pub struct SwapToSrmTransitive<'info> {
 pub struct Distribute<'info> {
     #[account(
 				owner = token_program,
-				constraint = token::accessor::mint(&srm_vault)? == pk!(SRM_MINT),
+				constraint = token::accessor::mint(&srm_vault)? == mint::SRM,
 		)]
     srm_vault: AccountInfo<'info>,
     #[account(address = spl_token::ID)]
@@ -240,17 +277,33 @@ impl<'info> From<&SweepFees<'info>> for CpiContext<'_, '_, '_, 'info, dex::Sweep
     }
 }
 
-/*
 impl<'info> From<&SwapToSrm<'info>> for CpiContext<'_, '_, '_, 'info, swap::Swap<'info>> {
     fn from(accs: &SwapToSrm<'info>) -> Self {
         let program = accs.swap_program.to_account_info();
         let accounts = swap::Swap {
-                        // todo
-                };
+            market: swap::MarketAccounts {
+                market: accs.market.market.clone(),
+                open_orders: accs.market.open_orders.clone(),
+                request_queue: accs.market.request_queue.clone(),
+                event_queue: accs.market.event_queue.clone(),
+                bids: accs.market.bids.clone(),
+                asks: accs.market.asks.clone(),
+                order_payer_token_account: accs.market.order_payer_token_account.clone(),
+                coin_vault: accs.market.coin_vault.clone(),
+                pc_vault: accs.market.pc_vault.clone(),
+                vault_signer: accs.market.vault_signer.clone(),
+                coin_wallet: accs.srm_vault.clone(),
+            },
+            authority: accs.officer.to_account_info(),
+            pc_wallet: accs.from_vault.to_account_info(),
+            dex_program: accs.dex_program.to_account_info(),
+            token_program: accs.token_program.to_account_info(),
+            rent: accs.rent.to_account_info(),
+        };
         CpiContext::new(program, accounts)
     }
 }
-*/
+
 /*
 impl<'info> From<&SwapToSrmTransitive<'info>> for CpiContext<'_, '_, '_, 'info, swap::SwapTransitive<'info>> {
     fn from(accs: &SwapToSrmTransitive<'info>) -> Self {

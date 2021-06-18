@@ -54,7 +54,6 @@ describe("cfo", () => {
     const token = await anchor.utils.publicKey.associated(
       program.programId,
       officer,
-      anchor.utils.bytes.utf8.encode("my-seed"),
       mint
     );
     await program.rpc.createOfficerToken({

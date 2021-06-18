@@ -209,6 +209,25 @@ pub trait Bump {
     fn seed(&self) -> u8;
 }
 
+pub trait Key {
+    fn key(&self) -> Pubkey;
+}
+
+impl<'info, T> Key for T
+where
+    T: ToAccountInfo<'info>,
+{
+    fn key(&self) -> Pubkey {
+        *self.to_account_info().key
+    }
+}
+
+impl Key for Pubkey {
+    fn key(&self) -> Pubkey {
+        *self
+    }
+}
+
 /// The prelude contains all commonly used components of the crate.
 /// All programs should include it via `anchor_lang::prelude::*;`.
 pub mod prelude {
