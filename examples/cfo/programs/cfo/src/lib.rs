@@ -4,9 +4,6 @@ use anchor_lang::solana_program::{system_instruction, system_program};
 use anchor_spl::token::{self, Mint, TokenAccount};
 use anchor_spl::{dex, mint};
 
-// TODO: use declare_id! and remove this..
-pub const SWAP_PID: &str = "22Y43yTVxuUkoRKdm9thyRhQ3SdgQS7c7kB6UNCiaczD";
-
 /// CFO is the program representing the Serum chief financial officer. It is
 /// the program responsible for collecting and distributing fees from the Serum
 /// DEX.
@@ -86,15 +83,6 @@ pub mod cfo {
     }
 }
 
-// Macros.
-
-// &str to Pubkey.
-macro_rules! pk {
-    ($str:ident) => {
-        $str.parse().unwrap()
-    };
-}
-
 // Context accounts.
 
 #[derive(Accounts)]
@@ -165,7 +153,7 @@ pub struct SwapToSrm<'info> {
     from_vault: AccountInfo<'info>,
     #[account(associated = officer, with = mint::SRM)]
     srm_vault: AccountInfo<'info>,
-    #[account(address = pk!(SWAP_PID))]
+    #[account(address = swap::ID)]
     swap_program: AccountInfo<'info>,
     #[account(address = dex::ID)]
     dex_program: AccountInfo<'info>,
