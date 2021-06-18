@@ -140,18 +140,17 @@ describe("misc", () => {
 
     // Manual associated address calculation for test only. Clients should use
     // the generated methods.
-    const [
-      associatedAccount,
-      nonce,
-    ] = await anchor.web3.PublicKey.findProgramAddress(
-      [
-        Buffer.from([97, 110, 99, 104, 111, 114]), // b"anchor".
-        program.provider.wallet.publicKey.toBuffer(),
-        state.toBuffer(),
-        data.publicKey.toBuffer(),
-      ],
-      program.programId
-    );
+    const [associatedAccount, nonce] =
+      await anchor.web3.PublicKey.findProgramAddress(
+        [
+          anchor.utils.bytes.utf8.encode("anchor"),
+          program.provider.wallet.publicKey.toBuffer(),
+          state.toBuffer(),
+          data.publicKey.toBuffer(),
+          anchor.utils.bytes.utf8.encode("my-seed"),
+        ],
+        program.programId
+      );
     await assert.rejects(
       async () => {
         await program.account.testData.fetch(associatedAccount);
@@ -178,25 +177,25 @@ describe("misc", () => {
     const account = await program.account.testData.associated(
       program.provider.wallet.publicKey,
       state,
-      data.publicKey
+      data.publicKey,
+      anchor.utils.bytes.utf8.encode("my-seed")
     );
     assert.ok(account.data.toNumber() === 1234);
   });
 
   it("Can use an associated program account", async () => {
     const state = await program.state.address();
-    const [
-      associatedAccount,
-      nonce,
-    ] = await anchor.web3.PublicKey.findProgramAddress(
-      [
-        Buffer.from([97, 110, 99, 104, 111, 114]), // b"anchor".
-        program.provider.wallet.publicKey.toBuffer(),
-        state.toBuffer(),
-        data.publicKey.toBuffer(),
-      ],
-      program.programId
-    );
+    const [associatedAccount, nonce] =
+      await anchor.web3.PublicKey.findProgramAddress(
+        [
+          anchor.utils.bytes.utf8.encode("anchor"),
+          program.provider.wallet.publicKey.toBuffer(),
+          state.toBuffer(),
+          data.publicKey.toBuffer(),
+          anchor.utils.bytes.utf8.encode("my-seed"),
+        ],
+        program.programId
+      );
     await program.rpc.testAssociatedAccount(new anchor.BN(5), {
       accounts: {
         myAccount: associatedAccount,
@@ -209,7 +208,8 @@ describe("misc", () => {
     const account = await program.account.testData.associated(
       program.provider.wallet.publicKey,
       state,
-      data.publicKey
+      data.publicKey,
+      anchor.utils.bytes.utf8.encode("my-seed")
     );
     assert.ok(account.data.toNumber() === 5);
   });

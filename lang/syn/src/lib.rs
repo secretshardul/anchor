@@ -329,6 +329,7 @@ pub enum ConstraintToken {
     AssociatedPayer(Context<ConstraintAssociatedPayer>),
     AssociatedSpace(Context<ConstraintAssociatedSpace>),
     AssociatedWith(Context<ConstraintAssociatedWith>),
+    AssociatedKind(Context<ConstraintAssociatedKind>),
     Address(Context<ConstraintAddress>),
 }
 
@@ -403,9 +404,10 @@ pub struct ConstraintState {
 pub struct ConstraintAssociatedGroup {
     pub is_init: bool,
     pub associated_target: Expr,
-    pub associated_seeds: Vec<Ident>,
+    pub associated_seeds: Vec<Expr>,
     pub payer: Option<Ident>,
     pub space: Option<LitInt>,
+    pub kind: Option<AssociatedKind>,
 }
 
 #[derive(Debug, Clone)]
@@ -420,12 +422,22 @@ pub struct ConstraintAssociatedPayer {
 
 #[derive(Debug, Clone)]
 pub struct ConstraintAssociatedWith {
-    pub target: Ident,
+    pub target: Expr,
 }
 
 #[derive(Debug, Clone)]
 pub struct ConstraintAssociatedSpace {
     pub space: LitInt,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstraintAssociatedKind {
+    pub kind: AssociatedKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum AssociatedKind {
+    Token { owner: Option<Expr> },
 }
 
 #[derive(Debug, Clone)]

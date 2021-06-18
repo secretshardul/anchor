@@ -69,7 +69,7 @@ const LangErrorCode = {
   ConstraintAssociated: 149,
   ConstraintAssociatedInit: 150,
   ConstraintClose: 151,
-	ConstraintAddress: 152,
+  ConstraintAddress: 152,
 
   // Accounts.
   AccountDiscriminatorAlreadySet: 160,

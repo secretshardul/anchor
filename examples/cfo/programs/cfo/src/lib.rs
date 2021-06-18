@@ -21,37 +21,14 @@ pub mod cfo {
         officer.dex_program = *ctx.accounts.dex_program.key;
         officer.distribution = distribution;
         emit!(OfficerDidCreate {
-            officer: officer.clone().into_inner(),
             pubkey: *officer.to_account_info().key,
         });
         Ok(())
     }
 
-    /// Creates a deterministic token account for the program as a convenient
-    /// alternative to the associated token program.
-    pub fn create_officer_token(ctx: Context<CreateOfficerToken>) -> Result<()> {
-        // Assign to the spl token program.
-        let seeds = associated_seeds!(
-            ctx.accounts.officer,
-            ctx.accounts.mint,
-            ctx.accounts.token_program
-        );
-        let ix = system_instruction::assign(
-            ctx.accounts.token.to_account_info().key,
-            ctx.accounts.token_program.key,
-        );
-        anchor_lang::solana_program::program::invoke_signed(
-            &ix,
-            &[
-                ctx.accounts.token.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-            ],
-            &[&seeds[..]],
-        )?;
-
-        // Initialize the token account.
-        token::initialize_account((&*ctx.accounts).into())?;
-
+    /// Creates a deterministic token account owned by the CFO. Can only be
+    /// called once per token CFO and token mint.
+    pub fn create_officer_token(_ctx: Context<CreateOfficerToken>) -> Result<()> {
         Ok(())
     }
 
@@ -71,21 +48,21 @@ pub mod cfo {
     }
 
     /*
-        /// Convert the entire balance of a usd(x) token (owned by the CFO) into SRM
-        /// by trading on the DEX.
-        #[access_control(is_not_trading())]
-        pub fn swap_to_srm<'info>(
-            ctx: Context<'_, '_, '_, 'info, SwapToSrm<'info>>,
-            min_exchange_rate: ExchangeRate,
-        ) -> Result<()> {
-            let seeds = associated_seeds!(ctx.accounts.officer);
-            let side = swap::Side::Bid;
-            let amount = token::accessor::amount(&ctx.accounts.from_vault)?;
-            let cpi_ctx: CpiContext<'_, '_, '_, 'info, swap::Swap<'info>> = (&*ctx.accounts).into();
-            swap::cpi::swap(cpi_ctx, side, amount, min_exchange_rate.into())?;
-            Ok(())
-        }
-    */
+    /// Convert the entire balance of a usd(x) token (owned by the CFO) into SRM
+    /// by trading on the DEX.
+    #[access_control(is_not_trading())]
+    pub fn swap_to_srm<'info>(
+        ctx: Context<'_, '_, '_, 'info, SwapToSrm<'info>>,
+        min_exchange_rate: ExchangeRate,
+    ) -> Result<()> {
+        let seeds = associated_seeds!(ctx.accounts.officer);
+        let side = swap::Side::Bid;
+        let amount = token::accessor::amount(&ctx.accounts.from_vault)?;
+        let cpi_ctx: CpiContext<'_, '_, '_, 'info, swap::Swap<'info>> = (&*ctx.accounts).into();
+        swap::cpi::swap(cpi_ctx, side, amount, min_exchange_rate.into())?;
+        Ok(())
+    }
+         */
 
     /// A transitive version of `swap_usdx_to_srm` for arbitrary, non usdx
     /// tokens.
@@ -134,10 +111,19 @@ pub struct CreateOfficer<'info> {
 #[derive(Accounts)]
 pub struct CreateOfficerToken<'info> {
     officer: ProgramAccount<'info, Officer>,
-    #[account(init, associated = officer, with = mint, with = token_program, space = 165)]
+    #[account(
+				init,
+				token,
+				associated = officer,
+				with = b"my-seed", with = mint,
+				space = 165,
+				payer = payer,
+		)]
     token: CpiAccount<'info, TokenAccount>,
     #[account(owner = token_program)]
     mint: CpiAccount<'info, Mint>,
+    #[account(mut, signer)]
+    payer: AccountInfo<'info>,
     #[account(address = system_program::ID)]
     system_program: AccountInfo<'info>,
     #[account(address = spl_token::ID)]
@@ -239,20 +225,6 @@ impl Distribution {
 
 // CpiContext transformations.
 
-impl<'info> From<&CreateOfficerToken<'info>>
-    for CpiContext<'_, '_, '_, 'info, token::InitializeAccount<'info>>
-{
-    fn from(accs: &CreateOfficerToken<'info>) -> Self {
-        let program = accs.token_program.to_account_info();
-        let accounts = token::InitializeAccount {
-            account: accs.token.to_account_info(),
-            mint: accs.mint.to_account_info(),
-            authority: accs.officer.to_account_info(),
-        };
-        CpiContext::new(program, accounts)
-    }
-}
-
 impl<'info> From<&SweepFees<'info>> for CpiContext<'_, '_, '_, 'info, dex::SweepFees<'info>> {
     fn from(sweep: &SweepFees<'info>) -> Self {
         let program = sweep.dex.dex_program.to_account_info();
@@ -278,7 +250,8 @@ impl<'info> From<&SwapToSrm<'info>> for CpiContext<'_, '_, '_, 'info, swap::Swap
         CpiContext::new(program, accounts)
     }
 }
-
+*/
+/*
 impl<'info> From<&SwapToSrmTransitive<'info>> for CpiContext<'_, '_, '_, 'info, swap::SwapTransitive<'info>> {
     fn from(accs: &SwapToSrmTransitive<'info>) -> Self {
         let program = accs.swap_program.to_account_info();
@@ -298,7 +271,6 @@ pub struct DistributionDidChange {
 }
 #[event]
 pub struct OfficerDidCreate {
-    officer: Officer,
     pubkey: Pubkey,
 }
 

@@ -120,6 +120,7 @@ pub fn initialize_account<'a, 'b, 'c, 'info>(
             ctx.accounts.account.clone(),
             ctx.accounts.mint.clone(),
             ctx.accounts.authority.clone(),
+            ctx.accounts.rent.clone(),
             ctx.program.clone(),
         ],
         ctx.signer_seeds,
@@ -188,6 +189,7 @@ pub struct InitializeAccount<'info> {
     pub account: AccountInfo<'info>,
     pub mint: AccountInfo<'info>,
     pub authority: AccountInfo<'info>,
+    pub rent: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -198,6 +200,10 @@ pub struct SetAuthority<'info> {
 
 #[derive(Clone)]
 pub struct TokenAccount(spl_token::state::Account);
+
+impl TokenAccount {
+    pub const LEN: usize = spl_token::state::Account::LEN;
+}
 
 impl anchor_lang::AccountDeserialize for TokenAccount {
     fn try_deserialize(buf: &mut &[u8]) -> Result<Self, ProgramError> {

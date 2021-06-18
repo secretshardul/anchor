@@ -11,6 +11,11 @@ incremented for features.
 
 ## [Unreleased]
 
+### Features
+
+* lang: Add `#[account(address = <expr>)]` constraint for asserting the address of an account ([#]()).
+* lang: Add `#[account(init, token, associated = ...)]` token constraint for initializing SPL token accounts as program derived addresses for the program.
+
 ## [0.9.0] - 2021-06-15
 
 ### Features

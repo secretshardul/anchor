@@ -219,7 +219,7 @@ pub struct TestClose<'info> {
 // the program.
 #[derive(Accounts)]
 pub struct TestInitAssociatedAccount<'info> {
-    #[account(init, associated = authority, with = state, with = data)]
+    #[account(init, associated = authority, with = state, with = data, with = b"my-seed")]
     my_account: ProgramAccount<'info, TestData>,
     #[account(mut, signer)]
     authority: AccountInfo<'info>,
@@ -231,7 +231,7 @@ pub struct TestInitAssociatedAccount<'info> {
 
 #[derive(Accounts)]
 pub struct TestAssociatedAccount<'info> {
-    #[account(mut, associated = authority, with = state, with = data)]
+    #[account(mut, associated = authority, with = state, with = data, with = b"my-seed")]
     my_account: ProgramAccount<'info, TestData>,
     #[account(mut, signer)]
     authority: AccountInfo<'info>,

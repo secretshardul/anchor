@@ -1,9 +1,10 @@
 use crate::{
-    ConstraintAddress, ConstraintAssociated, ConstraintAssociatedGroup, ConstraintAssociatedPayer,
-    ConstraintAssociatedSpace, ConstraintAssociatedWith, ConstraintBelongsTo, ConstraintClose,
-    ConstraintExecutable, ConstraintGroup, ConstraintInit, ConstraintLiteral, ConstraintMut,
-    ConstraintOwner, ConstraintRaw, ConstraintRentExempt, ConstraintSeeds, ConstraintSeedsGroup,
-    ConstraintSigner, ConstraintState, ConstraintToken, Context, Ty,
+    AssociatedKind, ConstraintAddress, ConstraintAssociated, ConstraintAssociatedGroup,
+    ConstraintAssociatedKind, ConstraintAssociatedPayer, ConstraintAssociatedSpace,
+    ConstraintAssociatedWith, ConstraintBelongsTo, ConstraintClose, ConstraintExecutable,
+    ConstraintGroup, ConstraintInit, ConstraintLiteral, ConstraintMut, ConstraintOwner,
+    ConstraintRaw, ConstraintRentExempt, ConstraintSeeds, ConstraintSeedsGroup, ConstraintSigner,
+    ConstraintState, ConstraintToken, Context, Ty,
 };
 use syn::ext::IdentExt;
 use syn::parse::{Error as ParseError, Parse, ParseStream, Result as ParseResult};
@@ -73,6 +74,12 @@ pub fn parse_token(stream: ParseStream) -> ParseResult<ConstraintToken> {
         "executable" => {
             ConstraintToken::Executable(Context::new(ident.span(), ConstraintExecutable {}))
         }
+        "token" => ConstraintToken::AssociatedKind(Context::new(
+            ident.span(),
+            ConstraintAssociatedKind {
+                kind: AssociatedKind::Token { owner: None },
+            },
+        )),
         _ => {
             stream.parse::<Token![=]>()?;
             let span = ident.span().join(stream.span()).unwrap_or(ident.span());
@@ -185,6 +192,7 @@ pub struct ConstraintGroupBuilder<'ty> {
     pub associated: Option<Context<ConstraintAssociated>>,
     pub associated_payer: Option<Context<ConstraintAssociatedPayer>>,
     pub associated_space: Option<Context<ConstraintAssociatedSpace>>,
+    pub associated_kind: Option<Context<ConstraintAssociatedKind>>,
     pub associated_with: Vec<Context<ConstraintAssociatedWith>>,
     pub close: Option<Context<ConstraintClose>>,
     pub address: Option<Context<ConstraintAddress>>,
@@ -208,6 +216,7 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
             associated: None,
             associated_payer: None,
             associated_space: None,
+            associated_kind: None,
             associated_with: Vec::new(),
             close: None,
             address: None,
@@ -241,6 +250,34 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
             }
         }
 
+        // Patch up the associated kind, since the full description may not
+        // have been given in a single constraint token.
+        self.associated_kind = self
+            .associated_kind
+            .as_ref()
+            .map(|k| {
+                // Token associations need an owner. If it was not given,
+                // default to the associated field.
+                let span = k.span();
+                let AssociatedKind::Token { owner } = &k.kind;
+                let owner = match owner {
+                    None => {
+                        if self.associated.is_none() {
+                            return Err(ParseError::new(span, "token owner must be provided"));
+                        }
+                        Some(self.associated.as_ref().unwrap().target.clone())
+                    }
+                    Some(owner) => Some(owner.clone()),
+                };
+                Ok(Context::new(
+                    span,
+                    ConstraintAssociatedKind {
+                        kind: AssociatedKind::Token { owner },
+                    },
+                ))
+            })
+            .transpose()?;
+
         let ConstraintGroupBuilder {
             f_ty: _,
             init,
@@ -258,6 +295,7 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
             associated_payer,
             associated_space,
             associated_with,
+            associated_kind,
             close,
             address,
         } = self;
@@ -302,6 +340,7 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
                 associated_seeds: associated_with.iter().map(|s| s.target.clone()).collect(),
                 payer: associated_payer.map(|p| p.target.clone()),
                 space: associated_space.map(|s| s.space.clone()),
+                kind: associated_kind.map(|k| k.kind.clone()),
             }),
             close: into_inner!(close),
             address: into_inner!(address),
@@ -325,6 +364,7 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
             ConstraintToken::AssociatedPayer(c) => self.add_associated_payer(c),
             ConstraintToken::AssociatedSpace(c) => self.add_associated_space(c),
             ConstraintToken::AssociatedWith(c) => self.add_associated_with(c),
+            ConstraintToken::AssociatedKind(c) => self.add_associated_kind(c),
             ConstraintToken::Close(c) => self.add_close(c),
             ConstraintToken::Address(c) => self.add_address(c),
         }
@@ -507,6 +547,17 @@ impl<'ty> ConstraintGroupBuilder<'ty> {
             ));
         }
         self.associated_with.push(c);
+        Ok(())
+    }
+
+    fn add_associated_kind(&mut self, c: Context<ConstraintAssociatedKind>) -> ParseResult<()> {
+        if self.associated_kind.is_some() {
+            return Err(ParseError::new(
+                c.span(),
+                "the account kind has already been provided",
+            ));
+        }
+        self.associated_kind.replace(c);
         Ok(())
     }
 }
