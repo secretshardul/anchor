@@ -5,7 +5,7 @@ use crate::{
     ConstraintSeedsGroup, ConstraintSigner, ConstraintState, Field, Ty,
 };
 use quote::quote;
-use syn::LitInt;
+use syn::Expr;
 
 pub fn generate(f: &Field) -> proc_macro2::TokenStream {
     let checks: Vec<proc_macro2::TokenStream> = linearize(&f.constraints)
@@ -393,7 +393,7 @@ pub fn generate_pda(
     seeds_constraint: proc_macro2::TokenStream,
     seeds_with_nonce: proc_macro2::TokenStream,
     payer: proc_macro2::TokenStream,
-    space: &Option<LitInt>,
+    space: &Option<Expr>,
     assign_nonce: bool,
     kind: Option<&AssociatedKind>,
 ) -> proc_macro2::TokenStream {

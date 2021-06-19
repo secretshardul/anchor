@@ -384,7 +384,7 @@ pub struct ConstraintSeedsGroup {
     pub is_init: bool,
     pub seeds: Punctuated<Expr, Token![,]>,
     pub payer: Option<Ident>,
-    pub space: Option<LitInt>,
+    pub space: Option<Expr>,
 }
 
 #[derive(Debug, Clone)]
@@ -406,7 +406,7 @@ pub struct ConstraintAssociatedGroup {
     pub associated_target: Expr,
     pub associated_seeds: Vec<Expr>,
     pub payer: Option<Ident>,
-    pub space: Option<LitInt>,
+    pub space: Option<Expr>,
     pub kind: Option<AssociatedKind>,
 }
 
@@ -427,7 +427,7 @@ pub struct ConstraintAssociatedWith {
 
 #[derive(Debug, Clone)]
 pub struct ConstraintAssociatedSpace {
-    pub space: LitInt,
+    pub space: Expr,
 }
 
 #[derive(Debug, Clone)]
