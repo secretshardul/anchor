@@ -1,6 +1,8 @@
 const assert = require("assert");
-const Token = require("@solana/spl-token").Token;
+const { Token } = require("@solana/spl-token");
+const utils = require("./utils");
 const anchor = require("@project-serum/anchor");
+const serumCmn = require("@project-serum/common");
 const { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } = anchor.web3;
 
 const DEX_PID = new PublicKey("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin");
@@ -12,6 +14,9 @@ describe("cfo", () => {
 
   const program = anchor.workspace.Cfo;
   let officer;
+  let TOKEN_CLIENT;
+  let officerAccount;
+  const sweepAuthority = program.provider.wallet.publicKey;
 
   it("Creates a CFO!", async () => {
     let distribution = {
@@ -31,7 +36,7 @@ describe("cfo", () => {
       },
     });
 
-    const officerAccount = await program.account.officer.associated(DEX_PID);
+    officerAccount = await program.account.officer.associated(DEX_PID);
     assert.ok(
       officerAccount.authority.equals(program.provider.wallet.publicKey)
     );
@@ -71,5 +76,95 @@ describe("cfo", () => {
     const tokenAccount = await tokenClient.getAccountInfo(token);
     assert.ok(tokenAccount.state === 1);
     assert.ok(tokenAccount.isInitialized);
+  });
+
+  // Accounts used to setup the orderbook.
+  let ORDERBOOK_ENV,
+    // Accounts used for A -> USDC swap transactions.
+    SWAP_A_USDC_ACCOUNTS,
+    // Accounts used for  USDC -> A swap transactions.
+    SWAP_USDC_A_ACCOUNTS,
+    // Serum DEX vault PDA for market A/USDC.
+    marketAVaultSigner,
+    // Serum DEX vault PDA for market B/USDC.
+    marketBVaultSigner;
+
+  it("BOILERPLATE: Sets up a market with funded fees", async () => {
+    ORDERBOOK_ENV = await utils.initMarket({
+      provider: program.provider,
+    });
+    TOKEN_CLIENT = new Token(
+      program.provider.connection,
+      ORDERBOOK_ENV.usdc,
+      TOKEN_PID,
+      program.provider.wallet.payer
+    );
+
+    await TOKEN_CLIENT.transfer(
+      ORDERBOOK_ENV.godUsdc,
+      ORDERBOOK_ENV.marketA._decoded.quoteVault,
+      program.provider.wallet.payer,
+      [],
+      10000000000000
+    );
+
+    const tokenAccount = await TOKEN_CLIENT.getAccountInfo(
+      ORDERBOOK_ENV.marketA._decoded.quoteVault
+    );
+    assert.ok(tokenAccount.amount.toString() === "10000902263700");
+  });
+
+  it("BOILERPLATE: Crates a token account for the officer associated iwth the market", async () => {
+    const token = await anchor.utils.publicKey.associated(
+      program.programId,
+      officer,
+      ORDERBOOK_ENV.usdc
+    );
+    await program.rpc.createOfficerToken({
+      accounts: {
+        officer,
+        token,
+        mint: ORDERBOOK_ENV.usdc,
+        payer: program.provider.wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PID,
+        rent: SYSVAR_RENT_PUBKEY,
+      },
+    });
+  });
+
+  it("Sweeps fees", async () => {
+    const sweepVault = await anchor.utils.publicKey.associated(
+      program.programId,
+      officer,
+      ORDERBOOK_ENV.usdc
+    );
+    const beforeTokenAccount = await serumCmn.getTokenAccount(
+      program.provider,
+      sweepVault
+    );
+    await program.rpc.sweepFees({
+      accounts: {
+        officer,
+        sweepVault,
+        mint: ORDERBOOK_ENV.usdc,
+        dex: {
+          market: ORDERBOOK_ENV.marketA._decoded.ownAddress,
+          pcVault: ORDERBOOK_ENV.marketA._decoded.quoteVault,
+          sweepAuthority,
+          vaultSigner: ORDERBOOK_ENV.vaultSigner,
+          dexProgram: DEX_PID,
+          tokenProgram: TOKEN_PID,
+        },
+      },
+    });
+    const afterTokenAccount = await serumCmn.getTokenAccount(
+      program.provider,
+      sweepVault
+    );
+    assert.ok(
+      afterTokenAccount.amount.sub(beforeTokenAccount.amount).toString() ===
+        "10000000000"
+    );
   });
 });

@@ -310,19 +310,19 @@ pub mod __private {
 /// account.
 #[macro_export]
 macro_rules! associated_seeds {
-    ($associated:expr) => {
+    (account = $pda:expr, associated = $associated:expr) => {
         &[
-            b"anchor",
+            b"anchor".as_ref(),
             $associated.to_account_info().key.as_ref(),
-            &[anchor_lang::Bump::seed(&*$associated)],
+            &[anchor_lang::Bump::seed(&*$pda)],
         ]
     };
-    ($associated:expr, $($with:expr),+) => {
+    (account = $pda:expr, associated = $associated:expr, $(with = $with:expr),+) => {
         &[
             b"anchor".as_ref(),
             $associated.to_account_info().key.as_ref(),
             $($with.to_account_info().key.as_ref()),+,
-            &[anchor_lang::Bump::seed(&*$associated)][..],
+            &[anchor_lang::Bump::seed(&*$pda)][..],
         ]
     };
 }

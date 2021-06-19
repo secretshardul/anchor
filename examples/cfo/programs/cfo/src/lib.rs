@@ -42,7 +42,10 @@ pub mod cfo {
 
     /// Transfers fees from the dex to the CFO.
     pub fn sweep_fees<'info>(ctx: Context<'_, '_, '_, 'info, SweepFees<'info>>) -> Result<()> {
-        let seeds = associated_seeds!(ctx.accounts.officer);
+        let seeds = associated_seeds! {
+            account = ctx.accounts.officer,
+            associated = ctx.accounts.dex.dex_program
+        };
         let cpi_ctx: CpiContext<'_, '_, '_, 'info, dex::SweepFees<'info>> = (&*ctx.accounts).into();
         dex::sweep_fees(cpi_ctx.with_signer(&[seeds]))?;
         Ok(())
@@ -55,7 +58,10 @@ pub mod cfo {
         ctx: Context<'_, '_, '_, 'info, SwapToUsdc<'info>>,
         min_exchange_rate: ExchangeRate,
     ) -> Result<()> {
-        let seeds = associated_seeds!(ctx.accounts.officer);
+        let seeds = associated_seeds! {
+            account = ctx.accounts.officer,
+            associated = ctx.accounts.dex_program
+        };
         let cpi_ctx: CpiContext<'_, '_, '_, 'info, swap::Swap<'info>> = (&*ctx.accounts).into();
         swap::cpi::swap(
             cpi_ctx.with_signer(&[seeds]),
@@ -73,7 +79,10 @@ pub mod cfo {
         ctx: Context<'_, '_, '_, 'info, SwapToSrm<'info>>,
         min_exchange_rate: ExchangeRate,
     ) -> Result<()> {
-        let seeds = associated_seeds!(ctx.accounts.officer);
+        let seeds = associated_seeds! {
+            account = ctx.accounts.officer,
+            associated = ctx.accounts.dex_program
+        };
         let cpi_ctx: CpiContext<'_, '_, '_, 'info, swap::Swap<'info>> = (&*ctx.accounts).into();
         swap::cpi::swap(
             cpi_ctx.with_signer(&[seeds]),
@@ -88,7 +97,7 @@ pub mod cfo {
     #[access_control(is_distribution_ready(&ctx.accounts))]
     pub fn distribute<'info>(ctx: Context<'_, '_, '_, 'info, Distribute<'info>>) -> Result<()> {
         // burn destroy
-        //				token::burn
+        //        token::burn
         // stake reward transfer
         // treasury transfer
         Ok(())
@@ -124,13 +133,13 @@ pub struct CreateOfficer<'info> {
 pub struct CreateOfficerToken<'info> {
     officer: ProgramAccount<'info, Officer>,
     #[account(
-				init,
-				token,
-				associated = officer,
-				with = mint,
-				space = TokenAccount::LEN,
-				payer = payer,
-		)]
+        init,
+        token,
+        associated = officer,
+        with = mint,
+        space = TokenAccount::LEN,
+        payer = payer,
+    )]
     token: CpiAccount<'info, TokenAccount>,
     #[account(owner = token_program)]
     mint: CpiAccount<'info, Mint>,
@@ -155,14 +164,22 @@ pub struct SetDistribution<'info> {
 pub struct SweepFees<'info> {
     #[account(associated = dex.dex_program)]
     officer: ProgramAccount<'info, Officer>,
-    #[account(owner = dex.token_program)]
+    #[account(
+        mut,
+        owner = dex.token_program,
+        associated = officer,
+        with = mint,
+    )]
     sweep_vault: AccountInfo<'info>,
+    mint: AccountInfo<'info>,
     dex: Dex<'info>,
 }
 
 #[derive(Accounts)]
 pub struct Dex<'info> {
+    #[account(mut)]
     market: AccountInfo<'info>,
+    #[account(mut)]
     pc_vault: AccountInfo<'info>,
     sweep_authority: AccountInfo<'info>,
     vault_signer: AccountInfo<'info>,
@@ -177,17 +194,17 @@ pub struct SwapToUsdc<'info> {
     officer: ProgramAccount<'info, Officer>,
     market: DexMarketAccounts<'info>,
     #[account(
-				owner = token_program,
-				constraint = &officer.treasury != from_vault.key,
-				constraint = &officer.stake != from_vault.key,
-		)]
+        owner = token_program,
+        constraint = &officer.treasury != from_vault.key,
+        constraint = &officer.stake != from_vault.key,
+    )]
     from_vault: AccountInfo<'info>,
     #[account(owner = token_program)]
     quote_vault: AccountInfo<'info>,
     #[account(
-				associated = officer,
-				with = mint::USDC,
-		)]
+        associated = officer,
+        with = mint::USDC,
+    )]
     usdc_vault: AccountInfo<'info>,
     #[account(address = swap::ID)]
     swap_program: AccountInfo<'info>,
@@ -204,19 +221,19 @@ pub struct SwapToSrm<'info> {
     officer: ProgramAccount<'info, Officer>,
     market: DexMarketAccounts<'info>,
     #[account(
-				owner = token_program,
-				constraint = &officer.treasury != from_vault.key,
-				constraint = &officer.stake != from_vault.key,
-		)]
+        owner = token_program,
+        constraint = &officer.treasury != from_vault.key,
+        constraint = &officer.stake != from_vault.key,
+    )]
     from_vault: AccountInfo<'info>,
     #[account(owner = token_program)]
     quote_vault: AccountInfo<'info>,
     #[account(
-				associated = officer,
-				with = mint::SRM,
-				constraint = &officer.treasury != from_vault.key,
-				constraint = &officer.stake != from_vault.key,
-		)]
+        associated = officer,
+        with = mint::SRM,
+        constraint = &officer.treasury != from_vault.key,
+        constraint = &officer.stake != from_vault.key,
+    )]
     srm_vault: AccountInfo<'info>,
     #[account(address = swap::ID)]
     swap_program: AccountInfo<'info>,
@@ -266,9 +283,9 @@ pub struct DexMarketAccounts<'info> {
 pub struct Distribute<'info> {
     officer: ProgramAccount<'info, Officer>,
     #[account(
-				owner = token_program,
-				constraint = token::accessor::mint(&srm_vault)? == mint::SRM,
-		)]
+        owner = token_program,
+        constraint = token::accessor::mint(&srm_vault)? == mint::SRM,
+    )]
     srm_vault: AccountInfo<'info>,
     #[account(address = mint::SRM)]
     mint: AccountInfo<'info>,
@@ -293,11 +310,9 @@ pub struct DropStakeReward<'info> {
 pub struct Officer {
     // Priviledged account.
     pub authority: Pubkey,
-    // Escrow vault where fees are swept into.
-    pub sweep: Pubkey,
-    // Escrow vault holding tokens which are dropped onto stakers.
+    // Escrow SRM vault holding tokens which are dropped onto stakers.
     pub stake: Pubkey,
-    // Token account to send treasury earned tokens to.
+    // SRM token account to send treasury earned tokens to.
     pub treasury: Pubkey,
     // Defines the fee distribution, i.e., what percent each fee category gets.
     pub distribution: Distribution,
