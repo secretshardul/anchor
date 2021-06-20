@@ -84,8 +84,8 @@ export async function associated(
 ): Promise<PublicKey> {
   let seeds = [Buffer.from([97, 110, 99, 104, 111, 114])]; // b"anchor".
   args.forEach((arg) => {
-    // @ts-ignore
     seeds.push(
+      // @ts-ignore
       arg.buffer !== undefined ? arg : translateAddress(arg).toBuffer()
     );
   });

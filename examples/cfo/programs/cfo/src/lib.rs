@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{system_instruction, system_program};
 use anchor_spl::token::{self, Mint, TokenAccount};
 use anchor_spl::{dex, mint};
+use registry::Registrar;
 
 /// CFO is the program representing the Serum chief financial officer. It is
 /// the program responsible for collecting and distributing fees from the Serum
@@ -13,12 +14,21 @@ pub mod cfo {
 
     /// Creates a financial officer account associated with a DEX program ID.
     #[access_control(is_distribution_valid(&d))]
-    pub fn create_officer(ctx: Context<CreateOfficer>, d: Distribution) -> Result<()> {
+    pub fn create_officer(
+        ctx: Context<CreateOfficer>,
+        d: Distribution,
+        registrar: Pubkey,
+        msrm_registrar: Pubkey,
+    ) -> Result<()> {
         let officer = &mut ctx.accounts.officer;
         officer.authority = *ctx.accounts.authority.key;
         officer.swap_program = *ctx.accounts.swap_program.key;
         officer.dex_program = *ctx.accounts.dex_program.key;
         officer.distribution = d;
+        officer.registrar = registrar;
+        officer.msrm_registrar = msrm_registrar;
+        officer.stake = *ctx.accounts.stake.to_account_info().key;
+        officer.treasury = *ctx.accounts.treasury.to_account_info().key;
         emit!(OfficerDidCreate {
             pubkey: *officer.to_account_info().key,
         });
@@ -107,7 +117,8 @@ pub mod cfo {
     pub fn drop_stake_reward<'info>(
         ctx: Context<'_, '_, '_, 'info, DropStakeReward<'info>>,
     ) -> Result<()> {
-        // drop rewards onto stakers
+        // Drop locked reward.
+        // Drop unlocked reward.
         Ok(())
     }
 }
@@ -118,14 +129,41 @@ pub mod cfo {
 pub struct CreateOfficer<'info> {
     #[account(init, associated = dex_program, payer = authority)]
     officer: ProgramAccount<'info, Officer>,
+    #[account(
+        init,
+        token,
+        associated = officer,
+        with = b"stake",
+        with = mint,
+        space = TokenAccount::LEN,
+        payer = authority,
+    )]
+    stake: CpiAccount<'info, TokenAccount>,
+    #[account(
+        init,
+        token,
+        associated = officer,
+        with = b"treasury",
+        with = mint,
+        space = TokenAccount::LEN,
+        payer = authority,
+    )]
+    treasury: CpiAccount<'info, TokenAccount>,
     #[account(signer)]
     authority: AccountInfo<'info>,
+    #[cfg_attr(
+        not(feature = "test"),
+        account(address = mint::SRM),
+    )]
+    mint: AccountInfo<'info>,
     #[account(executable)]
     dex_program: AccountInfo<'info>,
     #[account(executable)]
     swap_program: AccountInfo<'info>,
     #[account(address = system_program::ID)]
     system_program: AccountInfo<'info>,
+    #[account(address = spl_token::ID)]
+    token_program: AccountInfo<'info>,
     rent: Sysvar<'info, Rent>,
 }
 
@@ -295,12 +333,40 @@ pub struct Distribute<'info> {
 
 #[derive(Accounts)]
 pub struct DropStakeReward<'info> {
-    #[account(has_one = stake)]
+    #[account(
+        has_one = stake,
+        constraint = srm.registrar.key == &officer.registrar,
+        constraint = msrm.registrar.key == &officer.msrm_registrar,
+    )]
     officer: ProgramAccount<'info, Officer>,
-    #[account(owner = token_program)]
+    #[account(associated = officer, with = b"stake", with = mint)]
     stake: CpiAccount<'info, TokenAccount>,
+    #[cfg_attr(
+        not(feature = "test"),
+        account(address = mint::SRM),
+    )]
+    mint: AccountInfo<'info>,
+    srm: DropStakeRewardPool<'info>,
+    msrm: DropStakeRewardPool<'info>,
+    #[account(owner = registry_program)]
+    msrm_registrar: CpiAccount<'info, Registrar>,
     #[account(address = token::ID)]
     token_program: AccountInfo<'info>,
+    #[account(address = registry::ID)]
+    registry_program: AccountInfo<'info>,
+    #[account(address = lockup::ID)]
+    lockup_program: AccountInfo<'info>,
+}
+
+// Don't bother doing validation on the individual accounts. Allow the stake
+// program to handle it.
+#[derive(Accounts)]
+pub struct DropStakeRewardPool<'info> {
+    registrar: AccountInfo<'info>,
+    reward_event_q: AccountInfo<'info>,
+    pool_mint: AccountInfo<'info>,
+    vendor: AccountInfo<'info>,
+    vendor_vault: AccountInfo<'info>,
 }
 
 // Accounts.
@@ -320,6 +386,10 @@ pub struct Officer {
     pub swap_program: Pubkey,
     // Dex program the officer is associated with.
     pub dex_program: Pubkey,
+    // SRM stake pool address
+    pub registrar: Pubkey,
+    // MSRM stake pool address.
+    pub msrm_registrar: Pubkey,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Default, Clone)]
@@ -411,6 +481,19 @@ impl<'info> From<&Distribute<'info>> for CpiContext<'_, '_, '_, 'info, token::Bu
         CpiContext::new(program, accounts)
     }
 }
+
+/*
+impl<'info> From<&DropStakeReward<'info>>
+for CpiContext<'_, '_, '_, 'info, registry::DropReward<'info>>
+{
+fn from(accs: &DropStakeReward<'info>) -> Self {
+let program = accs.registry_program.clone();
+let accounts = registry::DropReward {
+registrar:
+                };
+        CpiContext::new(program, accounts)
+    }
+}*/
 
 // Events.
 

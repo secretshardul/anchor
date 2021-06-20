@@ -494,7 +494,7 @@ pub fn generate_pda(
                 // Initialize the token account.
                 let cpi_program = token_program.to_account_info();
                 let accounts = anchor_spl::token::InitializeAccount {
-                    account: token.to_account_info(),
+                    account: #field.to_account_info(),
                     mint: mint.to_account_info(),
                     authority: #owner.to_account_info(),
                     rent: rent.to_account_info(),

@@ -350,7 +350,7 @@ pub struct ConstraintSigner {}
 
 #[derive(Debug, Clone)]
 pub struct ConstraintBelongsTo {
-    pub join_target: Ident,
+    pub join_target: Expr,
 }
 
 #[derive(Debug, Clone)]

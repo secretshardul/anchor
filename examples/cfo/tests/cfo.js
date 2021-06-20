@@ -8,6 +8,12 @@ const { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } = anchor.web3;
 const DEX_PID = new PublicKey("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin");
 const SWAP_PID = new PublicKey("22Y43yTVxuUkoRKdm9thyRhQ3SdgQS7c7kB6UNCiaczD");
 const TOKEN_PID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const REGISTRY_PID = new PublicKey(
+  "GrAkKfEpTKQuVHG2Y97Y2FF4i7y7Q5AHLK94JBy7Y5yv"
+);
+const LOCKUP_PID = new PublicKey(
+  "6ebQNeTPZ1j7k3TtkCCtEPRvG7GQsucQrZ7sSEDQi9Ks"
+);
 
 describe("cfo", () => {
   anchor.setProvider(anchor.Provider.env());
@@ -17,66 +23,6 @@ describe("cfo", () => {
   let TOKEN_CLIENT;
   let officerAccount;
   const sweepAuthority = program.provider.wallet.publicKey;
-
-  it("Creates a CFO!", async () => {
-    let distribution = {
-      bnb: 80,
-      stake: 20,
-      treasury: 0,
-    };
-    officer = await program.account.officer.associatedAddress(DEX_PID);
-    await program.rpc.createOfficer(distribution, {
-      accounts: {
-        officer,
-        authority: program.provider.wallet.publicKey,
-        dexProgram: DEX_PID,
-        swapProgram: SWAP_PID,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      },
-    });
-
-    officerAccount = await program.account.officer.associated(DEX_PID);
-    assert.ok(
-      officerAccount.authority.equals(program.provider.wallet.publicKey)
-    );
-    assert.ok(
-      JSON.stringify(officerAccount.distribution) ===
-        JSON.stringify(distribution)
-    );
-  });
-
-  it("Creates a token account for the CFO!", async () => {
-    const tokenClient = await Token.createMint(
-      program.provider.connection,
-      program.provider.wallet.payer,
-      program.provider.wallet.publicKey,
-      null,
-      6,
-      TOKEN_PID
-    );
-    const mint = tokenClient.publicKey;
-    const token = await anchor.utils.publicKey.associated(
-      program.programId,
-      officer,
-      mint
-    );
-    await program.rpc.createOfficerToken({
-      accounts: {
-        officer,
-        token,
-        mint,
-        payer: program.provider.wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PID,
-        rent: SYSVAR_RENT_PUBKEY,
-      },
-    });
-
-    const tokenAccount = await tokenClient.getAccountInfo(token);
-    assert.ok(tokenAccount.state === 1);
-    assert.ok(tokenAccount.isInitialized);
-  });
 
   // Accounts used to setup the orderbook.
   let ORDERBOOK_ENV,
@@ -88,6 +34,8 @@ describe("cfo", () => {
     marketAVaultSigner,
     // Serum DEX vault PDA for market B/USDC.
     marketBVaultSigner;
+
+  let registrar, msrmRegistrar;
 
   it("BOILERPLATE: Sets up a market with funded fees", async () => {
     ORDERBOOK_ENV = await utils.initMarket({
@@ -114,7 +62,57 @@ describe("cfo", () => {
     assert.ok(tokenAccount.amount.toString() === "10000902263700");
   });
 
-  it("BOILERPLATE: Crates a token account for the officer associated iwth the market", async () => {
+  it("BOILERPLATE: Sets up the staking pools", async () => {
+    // TODO
+    registrar = ORDERBOOK_ENV.usdc;
+    msrmRegistrar = registrar;
+  });
+
+  it("Creates a CFO!", async () => {
+    let distribution = {
+      bnb: 80,
+      stake: 20,
+      treasury: 0,
+    };
+    officer = await program.account.officer.associatedAddress(DEX_PID);
+		const stake = await anchor.utils.publicKey.associated(
+			program.programId,
+      officer,
+			anchor.utils.bytes.utf8.encode("stake"),
+      ORDERBOOK_ENV.mintA
+    );
+		const treasury = await anchor.utils.publicKey.associated(
+			program.programId,
+      officer,
+			Buffer.from(anchor.utils.bytes.utf8.encode("treasury")),
+      ORDERBOOK_ENV.mintA
+    );
+    await program.rpc.createOfficer(distribution, registrar, msrmRegistrar, {
+      accounts: {
+        officer,
+        stake,
+				treasury,
+        mint: ORDERBOOK_ENV.mintA,
+        authority: program.provider.wallet.publicKey,
+        dexProgram: DEX_PID,
+        swapProgram: SWAP_PID,
+        tokenProgram: TOKEN_PID,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+      },
+    });
+
+    officerAccount = await program.account.officer.associated(DEX_PID);
+    assert.ok(
+      officerAccount.authority.equals(program.provider.wallet.publicKey)
+    );
+    assert.ok(
+      JSON.stringify(officerAccount.distribution) ===
+        JSON.stringify(distribution)
+    );
+  });
+
+  it("Creates a token account for the officer associated with the market", async () => {
     const token = await anchor.utils.publicKey.associated(
       program.programId,
       officer,
@@ -131,6 +129,9 @@ describe("cfo", () => {
         rent: SYSVAR_RENT_PUBKEY,
       },
     });
+		const tokenAccount = await TOKEN_CLIENT.getAccountInfo(token);
+    assert.ok(tokenAccount.state === 1);
+    assert.ok(tokenAccount.isInitialized);
   });
 
   it("Sweeps fees", async () => {
@@ -166,5 +167,9 @@ describe("cfo", () => {
       afterTokenAccount.amount.sub(beforeTokenAccount.amount).toString() ===
         "10000000000"
     );
+  });
+
+  it("", async () => {
+    // todo
   });
 });

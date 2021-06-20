@@ -12,10 +12,13 @@ name = "cfo"
 no-entrypoint = []
 no-idl = []
 cpi = ["no-entrypoint"]
-default = []
+default = ["test"]
+test = []
 
 [dependencies]
 anchor-lang = { path = "../../../../lang" }
 anchor-spl = { path = "../../../../spl" }
 swap = { path = "/home/armaniferrante/Documents/code/src/github.com/project-serum/swap/programs/swap", features = ["cpi"] }
 spl-token = { version ="3.1.1", features = ["no-entrypoint"] }
+registry = { path = "../../deps/stake/programs/registry", features = ["cpi"] }
+lockup = { path = "../../deps/stake/programs/lockup", features = ["cpi"] }
