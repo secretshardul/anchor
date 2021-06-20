@@ -147,6 +147,11 @@ pub enum Command {
     /// Starts a node shell with an Anchor client setup according to the local
     /// config.
     Shell,
+    /// Runs the script defined by the current workspace's Anchor.toml.
+    Run {
+        /// The name of the script to run.
+        script: String,
+    },
 }
 
 #[derive(Debug, Clap)]
@@ -267,6 +272,7 @@ fn main() -> Result<()> {
         Command::Airdrop => airdrop(cfg_override),
         Command::Cluster { subcmd } => cluster(subcmd),
         Command::Shell => shell(&opts.cfg_override),
+        Command::Run { script } => run(&opts.cfg_override, script),
     }
 }
 
@@ -1650,6 +1656,26 @@ fn shell(cfg_override: &ConfigOverride) -> Result<()> {
         if !child.wait()?.success() {
             println!("Error running node shell");
             return Ok(());
+        }
+        Ok(())
+    })
+}
+
+fn run(cfg_override: &ConfigOverride, script: String) -> Result<()> {
+    with_workspace(cfg_override, |cfg, _path, _cargo| {
+        let script = cfg
+            .scripts
+            .get(&script)
+            .ok_or(anyhow!("Unable to find script"))?;
+        let exit = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(&script)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .output()
+            .unwrap();
+        if !exit.status.success() {
+            std::process::exit(exit.status.code().unwrap_or(1));
         }
         Ok(())
     })

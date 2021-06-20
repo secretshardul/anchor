@@ -15,6 +15,7 @@ incremented for features.
 
 * lang: Add `#[account(address = <expr>)]` constraint for asserting the address of an account ([#]()).
 * lang: Add `#[account(init, token, associated = ...)]` token constraint for initializing SPL token accounts as program derived addresses for the program.
+* cli: Add `[scripts]` section to the Anchor.toml for specifying workspace scripts that can be run via `anchor run <script>` ([#]()).
 
 ## [0.9.0] - 2021-06-15
 

@@ -16,6 +16,7 @@ use std::str::FromStr;
 pub struct Config {
     pub provider: ProviderConfig,
     pub clusters: ClustersConfig,
+    pub scripts: ScriptsConfig,
     pub test: Option<Test>,
 }
 
@@ -24,6 +25,8 @@ pub struct ProviderConfig {
     pub cluster: Cluster,
     pub wallet: WalletPath,
 }
+
+pub type ScriptsConfig = BTreeMap<String, String>;
 
 pub type ClustersConfig = BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>;
 
@@ -100,6 +103,7 @@ impl Config {
 struct _Config {
     provider: Provider,
     test: Option<Test>,
+    scripts: Option<ScriptsConfig>,
     clusters: Option<BTreeMap<String, BTreeMap<String, String>>>,
 }
 
@@ -125,6 +129,10 @@ impl ToString for Config {
                 wallet: self.provider.wallet.to_string(),
             },
             test: self.test.clone(),
+            scripts: match self.scripts.is_empty() {
+                true => None,
+                false => Some(self.scripts.clone()),
+            },
             clusters,
         };
 
@@ -143,6 +151,7 @@ impl FromStr for Config {
                 cluster: cfg.provider.cluster.parse()?,
                 wallet: shellexpand::tilde(&cfg.provider.wallet).parse()?,
             },
+            scripts: cfg.scripts.unwrap_or_else(|| BTreeMap::new()),
             test: cfg.test,
             clusters: cfg
                 .clusters
