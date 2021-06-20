@@ -1,6 +1,14 @@
 [provider]
 cluster = "localnet"
-wallet = "/home/armaniferrante/.config/solana/id.json"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "anchor run build && anchor test --skip-build"
+build = "anchor run build-deps && anchor build"
+build-deps = "anchor run build-dex && anchor run build-swap && anchor run build-stake"
+build-dex = "pushd deps/serum-dex/dex/ && cargo build-bpf && popd"
+build-swap = "cd deps/swap && pwd && anchor build && cd ../../"
+build-stake = "pushd deps/stake && anchor build && popd"
 
 [[test.genesis]]
 address = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
@@ -9,3 +17,11 @@ program = "./deps/serum-dex/dex/target/deploy/serum_dex.so"
 [[test.genesis]]
 address = "22Y43yTVxuUkoRKdm9thyRhQ3SdgQS7c7kB6UNCiaczD"
 program = "./deps/swap/target/deploy/swap.so"
+
+[[test.genesis]]
+address = "GrAkKfEpTKQuVHG2Y97Y2FF4i7y7Q5AHLK94JBy7Y5yv"
+program = "./deps/stake/target/deploy/registry.so"
+
+[[test.genesis]]
+address = "6ebQNeTPZ1j7k3TtkCCtEPRvG7GQsucQrZ7sSEDQi9Ks"
+program = "./deps/stake/target/deploy/lockup.so"
