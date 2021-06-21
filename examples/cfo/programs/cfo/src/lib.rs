@@ -107,9 +107,8 @@ pub mod cfo {
     /// Distributes tokens.
     #[access_control(is_distribution_ready(&ctx.accounts))]
     pub fn distribute<'info>(ctx: Context<'_, '_, '_, 'info, Distribute<'info>>) -> Result<()> {
-        // burn destroy
-        //        token::burn
-        // stake reward transfer
+        // burn
+        // stake escrow transfer
         // treasury transfer
         Ok(())
     }
@@ -119,8 +118,18 @@ pub mod cfo {
         ctx: Context<'_, '_, '_, 'info, DropStakeReward<'info>>,
     ) -> Result<()> {
         // Common reward parameters.
-        let expiry_ts = 1853942400;
+        let expiry_ts = 1853942400; // 9/30/2028.
         let expiry_receiver = *ctx.accounts.officer.to_account_info().key;
+        let locked_kind = {
+            let start_ts = 1633017600; // 9/30/2021.
+            let end_ts = 1822320000; // 9/30/2027.
+            let period_count = 2191;
+            RewardVendorKind::Locked {
+                start_ts,
+                end_ts,
+                period_count,
+            }
+        };
 
         // Total amount staked denominated in SRM (i.e. MSRM is converted to
         // SRM)
@@ -173,19 +182,9 @@ pub mod cfo {
                 ],
                 ctx.accounts.token_program.key,
             );
-            let locked_kind = {
-                let start_ts = 1633017600;
-                let end_ts = 1822320000;
-                let period_count = 2191;
-                RewardVendorKind::Locked {
-                    start_ts,
-                    end_ts,
-                    period_count,
-                }
-            };
             registry::cpi::drop_reward(
                 ctx.accounts.into_srm_reward(),
-                locked_kind,
+                locked_kind.clone(),
                 srm_amount.try_into().unwrap(),
                 expiry_ts,
                 expiry_receiver,
@@ -213,16 +212,6 @@ pub mod cfo {
                 ],
                 ctx.accounts.token_program.key,
             );
-            let locked_kind = {
-                let start_ts = 1633017600;
-                let end_ts = 1822320000;
-                let period_count = 2191;
-                RewardVendorKind::Locked {
-                    start_ts,
-                    end_ts,
-                    period_count,
-                }
-            };
             registry::cpi::drop_reward(
                 ctx.accounts.into_msrm_reward(),
                 locked_kind,
