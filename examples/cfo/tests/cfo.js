@@ -70,28 +70,34 @@ describe("cfo", () => {
 
   it("Creates a CFO!", async () => {
     let distribution = {
-      bnb: 80,
+      burn: 80,
       stake: 20,
       treasury: 0,
     };
     officer = await program.account.officer.associatedAddress(DEX_PID);
-		const stake = await anchor.utils.publicKey.associated(
-			program.programId,
+    const srmVault = await anchor.utils.publicKey.associated(
+      program.programId,
       officer,
-			anchor.utils.bytes.utf8.encode("stake"),
+      ORDERBOOK_ENV.mintA,
+    );
+    const stake = await anchor.utils.publicKey.associated(
+      program.programId,
+      officer,
+      anchor.utils.bytes.utf8.encode("stake"),
       ORDERBOOK_ENV.mintA
     );
-		const treasury = await anchor.utils.publicKey.associated(
-			program.programId,
+    const treasury = await anchor.utils.publicKey.associated(
+      program.programId,
       officer,
-			Buffer.from(anchor.utils.bytes.utf8.encode("treasury")),
+      Buffer.from(anchor.utils.bytes.utf8.encode("treasury")),
       ORDERBOOK_ENV.mintA
     );
     await program.rpc.createOfficer(distribution, registrar, msrmRegistrar, {
       accounts: {
         officer,
+        srmVault,
         stake,
-				treasury,
+        treasury,
         mint: ORDERBOOK_ENV.mintA,
         authority: program.provider.wallet.publicKey,
         dexProgram: DEX_PID,

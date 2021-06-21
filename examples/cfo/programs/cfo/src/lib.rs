@@ -30,6 +30,7 @@ pub mod cfo {
         officer.msrm_registrar = msrm_registrar;
         officer.stake = *ctx.accounts.stake.to_account_info().key;
         officer.treasury = *ctx.accounts.treasury.to_account_info().key;
+        officer.srm_vault = *ctx.accounts.srm_vault.to_account_info().key;
         emit!(OfficerDidCreate {
             pubkey: *officer.to_account_info().key,
         });
@@ -104,12 +105,52 @@ pub mod cfo {
         Ok(())
     }
 
-    /// Distributes tokens.
+    /// Distributes srm tokens to the various categories. Before calling this,
+    /// one must convert the fees into SRM via the swap APIs.
     #[access_control(is_distribution_ready(&ctx.accounts))]
     pub fn distribute<'info>(ctx: Context<'_, '_, '_, 'info, Distribute<'info>>) -> Result<()> {
-        // burn
-        // stake escrow transfer
-        // treasury transfer
+        let total_fees = ctx.accounts.srm_vault.amount;
+        let seeds = associated_seeds! {
+            account = ctx.accounts.officer,
+            associated = ctx.accounts.dex_program
+        };
+
+        // Burn.
+        let burn_amount: u64 = u128::from(total_fees)
+            .checked_mul(ctx.accounts.officer.distribution.burn.into())
+            .unwrap()
+            .checked_div(100)
+            .unwrap()
+            .try_into()
+            .map_err(|_| ErrorCode::U128CannotConvert)?;
+        token::burn(ctx.accounts.into_burn().with_signer(&[seeds]), burn_amount)?;
+
+        // Stake.
+        let stake_amount: u64 = u128::from(total_fees)
+            .checked_mul(ctx.accounts.officer.distribution.stake.into())
+            .unwrap()
+            .checked_div(100)
+            .unwrap()
+            .try_into()
+            .map_err(|_| ErrorCode::U128CannotConvert)?;
+        token::transfer(
+            ctx.accounts.into_stake_transfer().with_signer(&[seeds]),
+            stake_amount,
+        )?;
+
+        // Treasury.
+        let treasury_amount: u64 = u128::from(total_fees)
+            .checked_mul(ctx.accounts.officer.distribution.treasury.into())
+            .unwrap()
+            .checked_div(100)
+            .unwrap()
+            .try_into()
+            .map_err(|_| ErrorCode::U128CannotConvert)?;
+        token::transfer(
+            ctx.accounts.into_treasury_transfer().with_signer(&[seeds]),
+            treasury_amount,
+        )?;
+
         Ok(())
     }
 
@@ -130,10 +171,14 @@ pub mod cfo {
                 period_count,
             }
         };
+        let seeds = associated_seeds! {
+            account = ctx.accounts.officer,
+            associated = ctx.accounts.dex_program
+        };
 
         // Total amount staked denominated in SRM (i.e. MSRM is converted to
         // SRM)
-        let total_srm_value = u128::from(ctx.accounts.srm.pool_mint.supply)
+        let total_pool_value = u128::from(ctx.accounts.srm.pool_mint.supply)
             .checked_mul(500)
             .unwrap()
             .checked_add(
@@ -148,26 +193,26 @@ pub mod cfo {
 
         // Proportion of the reward going to the srm pool.
         //
-        // total_reward_amount * (srm_pool_value / cumulative_pool_value)
+        // total_reward_amount * (srm_pool_value / total_pool_value)
         //
         let srm_amount: u64 = u128::from(ctx.accounts.srm.pool_mint.supply)
             .checked_mul(500)
             .unwrap()
             .checked_mul(total_reward_amount)
             .unwrap()
-            .checked_div(total_srm_value)
+            .checked_div(total_pool_value)
             .unwrap()
             .try_into()
             .map_err(|_| ErrorCode::U128CannotConvert)?;
 
         // Proportion of the reward going to the msrm pool.
         //
-        // total_reward_amount * (msrm_pool_value / cumulative_pool_value)
+        // total_reward_amount * (msrm_pool_value / total_pool_value)
         //
         let msrm_amount = u128::from(ctx.accounts.msrm.pool_mint.supply)
             .checked_mul(total_reward_amount)
             .unwrap()
-            .checked_div(total_srm_value)
+            .checked_div(total_pool_value)
             .unwrap()
             .try_into()
             .map_err(|_| ErrorCode::U128CannotConvert)?;
@@ -183,7 +228,7 @@ pub mod cfo {
                 ctx.accounts.token_program.key,
             );
             registry::cpi::drop_reward(
-                ctx.accounts.into_srm_reward(),
+                ctx.accounts.into_srm_reward().with_signer(&[seeds]),
                 locked_kind.clone(),
                 srm_amount.try_into().unwrap(),
                 expiry_ts,
@@ -193,7 +238,7 @@ pub mod cfo {
 
             // Drop unlocked reward.
             registry::cpi::drop_reward(
-                ctx.accounts.into_srm_reward(),
+                ctx.accounts.into_srm_reward().with_signer(&[seeds]),
                 RewardVendorKind::Unlocked,
                 srm_amount,
                 expiry_ts,
@@ -213,7 +258,7 @@ pub mod cfo {
                 ctx.accounts.token_program.key,
             );
             registry::cpi::drop_reward(
-                ctx.accounts.into_msrm_reward(),
+                ctx.accounts.into_msrm_reward().with_signer(&[seeds]),
                 locked_kind,
                 msrm_amount,
                 expiry_ts,
@@ -223,7 +268,7 @@ pub mod cfo {
 
             // Drop unlocked reward.
             registry::cpi::drop_reward(
-                ctx.accounts.into_msrm_reward(),
+                ctx.accounts.into_msrm_reward().with_signer(&[seeds]),
                 RewardVendorKind::Unlocked,
                 msrm_amount,
                 expiry_ts,
@@ -242,6 +287,15 @@ pub mod cfo {
 pub struct CreateOfficer<'info> {
     #[account(init, associated = dex_program, payer = authority)]
     officer: ProgramAccount<'info, Officer>,
+    #[account(
+        init,
+        token,
+        associated = officer,
+        with = mint,
+        space = TokenAccount::LEN,
+        payer = authority,
+    )]
+    srm_vault: CpiAccount<'info, TokenAccount>,
     #[account(
         init,
         token,
@@ -432,16 +486,21 @@ pub struct DexMarketAccounts<'info> {
 
 #[derive(Accounts)]
 pub struct Distribute<'info> {
+    #[account(has_one = treasury, has_one = stake)]
     officer: ProgramAccount<'info, Officer>,
+    treasury: AccountInfo<'info>,
+    stake: AccountInfo<'info>,
     #[account(
         owner = token_program,
-        constraint = token::accessor::mint(&srm_vault)? == mint::SRM,
+        constraint = srm_vault.mint == mint::SRM,
     )]
-    srm_vault: AccountInfo<'info>,
+    srm_vault: CpiAccount<'info, TokenAccount>,
     #[account(address = mint::SRM)]
     mint: AccountInfo<'info>,
     #[account(address = spl_token::ID)]
     token_program: AccountInfo<'info>,
+    #[account(address = dex::ID)]
+    dex_program: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -469,6 +528,8 @@ pub struct DropStakeReward<'info> {
     registry_program: AccountInfo<'info>,
     #[account(address = lockup::ID)]
     lockup_program: AccountInfo<'info>,
+    #[account(address = dex::ID)]
+    dex_program: AccountInfo<'info>,
     clock: Sysvar<'info, Clock>,
     rent: Sysvar<'info, Rent>,
 }
@@ -491,6 +552,8 @@ pub struct DropStakeRewardPool<'info> {
 pub struct Officer {
     // Priviledged account.
     pub authority: Pubkey,
+    // Vault holding the officer's SRM tokens prior to distribution.
+    pub srm_vault: Pubkey,
     // Escrow SRM vault holding tokens which are dropped onto stakers.
     pub stake: Pubkey,
     // SRM token account to send treasury earned tokens to.
@@ -509,7 +572,7 @@ pub struct Officer {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Default, Clone)]
 pub struct Distribution {
-    bnb: u8,
+    burn: u8,
     stake: u8,
     treasury: u8,
 }
@@ -633,6 +696,38 @@ impl<'info> DropStakeReward<'info> {
     }
 }
 
+impl<'info> Distribute<'info> {
+    fn into_burn(&self) -> CpiContext<'_, '_, '_, 'info, token::Burn<'info>> {
+        let program = self.token_program.clone();
+        let accounts = token::Burn {
+            mint: self.mint.clone(),
+            to: self.srm_vault.to_account_info(),
+            authority: self.officer.to_account_info(),
+        };
+        CpiContext::new(program, accounts)
+    }
+
+    fn into_stake_transfer(&self) -> CpiContext<'_, '_, '_, 'info, token::Transfer<'info>> {
+        let program = self.token_program.clone();
+        let accounts = token::Transfer {
+            from: self.srm_vault.to_account_info(),
+            to: self.stake.to_account_info(),
+            authority: self.officer.to_account_info(),
+        };
+        CpiContext::new(program, accounts)
+    }
+
+    fn into_treasury_transfer(&self) -> CpiContext<'_, '_, '_, 'info, token::Transfer<'info>> {
+        let program = self.token_program.clone();
+        let accounts = token::Transfer {
+            from: self.srm_vault.to_account_info(),
+            to: self.treasury.to_account_info(),
+            authority: self.officer.to_account_info(),
+        };
+        CpiContext::new(program, accounts)
+    }
+}
+
 // Events.
 
 #[event]
@@ -657,7 +752,7 @@ pub enum ErrorCode {
 // Access control.
 
 fn is_distribution_valid(d: &Distribution) -> Result<()> {
-    if d.bnb + d.stake + d.treasury != 100 {
+    if d.burn + d.stake + d.treasury != 100 {
         return Err(ErrorCode::InvalidDistribution.into());
     }
     Ok(())
