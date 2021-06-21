@@ -3,7 +3,8 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{system_instruction, system_program};
 use anchor_spl::token::{self, Mint, TokenAccount};
 use anchor_spl::{dex, mint};
-use registry::Registrar;
+use registry::{Registrar, RewardVendorKind};
+use std::convert::TryInto;
 
 /// CFO is the program representing the Serum chief financial officer. It is
 /// the program responsible for collecting and distributing fees from the Serum
@@ -117,8 +118,131 @@ pub mod cfo {
     pub fn drop_stake_reward<'info>(
         ctx: Context<'_, '_, '_, 'info, DropStakeReward<'info>>,
     ) -> Result<()> {
-        // Drop locked reward.
-        // Drop unlocked reward.
+        // Common reward parameters.
+        let expiry_ts = 1853942400;
+        let expiry_receiver = *ctx.accounts.officer.to_account_info().key;
+
+        // Total amount staked denominated in SRM (i.e. MSRM is converted to
+        // SRM)
+        let total_srm_value = u128::from(ctx.accounts.srm.pool_mint.supply)
+            .checked_mul(500)
+            .unwrap()
+            .checked_add(
+                u128::from(ctx.accounts.msrm.pool_mint.supply)
+                    .checked_mul(1_000_000)
+                    .unwrap(),
+            )
+            .unwrap();
+
+        // Total reward split between both the SRM and MSRM stake pools.
+        let total_reward_amount = u128::from(ctx.accounts.stake.amount);
+
+        // Proportion of the reward going to the srm pool.
+        //
+        // total_reward_amount * (srm_pool_value / cumulative_pool_value)
+        //
+        let srm_amount: u64 = u128::from(ctx.accounts.srm.pool_mint.supply)
+            .checked_mul(500)
+            .unwrap()
+            .checked_mul(total_reward_amount)
+            .unwrap()
+            .checked_div(total_srm_value)
+            .unwrap()
+            .try_into()
+            .map_err(|_| ErrorCode::U128CannotConvert)?;
+
+        // Proportion of the reward going to the msrm pool.
+        //
+        // total_reward_amount * (msrm_pool_value / cumulative_pool_value)
+        //
+        let msrm_amount = u128::from(ctx.accounts.msrm.pool_mint.supply)
+            .checked_mul(total_reward_amount)
+            .unwrap()
+            .checked_div(total_srm_value)
+            .unwrap()
+            .try_into()
+            .map_err(|_| ErrorCode::U128CannotConvert)?;
+
+        // SRM drop.
+        {
+            // Drop locked reward.
+            let (_, nonce) = Pubkey::find_program_address(
+                &[
+                    ctx.accounts.srm.registrar.to_account_info().key.as_ref(),
+                    ctx.accounts.srm.vendor.to_account_info().key.as_ref(),
+                ],
+                ctx.accounts.token_program.key,
+            );
+            let locked_kind = {
+                let start_ts = 1633017600;
+                let end_ts = 1822320000;
+                let period_count = 2191;
+                RewardVendorKind::Locked {
+                    start_ts,
+                    end_ts,
+                    period_count,
+                }
+            };
+            registry::cpi::drop_reward(
+                ctx.accounts.into_srm_reward(),
+                locked_kind,
+                srm_amount.try_into().unwrap(),
+                expiry_ts,
+                expiry_receiver,
+                nonce,
+            )?;
+
+            // Drop unlocked reward.
+            registry::cpi::drop_reward(
+                ctx.accounts.into_srm_reward(),
+                RewardVendorKind::Unlocked,
+                srm_amount,
+                expiry_ts,
+                expiry_receiver,
+                nonce,
+            )?;
+        }
+
+        // MSRM drop.
+        {
+            // Drop locked reward.
+            let (_, nonce) = Pubkey::find_program_address(
+                &[
+                    ctx.accounts.msrm.registrar.to_account_info().key.as_ref(),
+                    ctx.accounts.msrm.vendor.to_account_info().key.as_ref(),
+                ],
+                ctx.accounts.token_program.key,
+            );
+            let locked_kind = {
+                let start_ts = 1633017600;
+                let end_ts = 1822320000;
+                let period_count = 2191;
+                RewardVendorKind::Locked {
+                    start_ts,
+                    end_ts,
+                    period_count,
+                }
+            };
+            registry::cpi::drop_reward(
+                ctx.accounts.into_msrm_reward(),
+                locked_kind,
+                msrm_amount,
+                expiry_ts,
+                expiry_receiver,
+                nonce,
+            )?;
+
+            // Drop unlocked reward.
+            registry::cpi::drop_reward(
+                ctx.accounts.into_msrm_reward(),
+                RewardVendorKind::Unlocked,
+                msrm_amount,
+                expiry_ts,
+                expiry_receiver,
+                nonce,
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -180,7 +304,7 @@ pub struct CreateOfficerToken<'info> {
     )]
     token: CpiAccount<'info, TokenAccount>,
     #[account(owner = token_program)]
-    mint: CpiAccount<'info, Mint>,
+    mint: AccountInfo<'info>,
     #[account(mut, signer)]
     payer: AccountInfo<'info>,
     #[account(address = system_program::ID)]
@@ -356,6 +480,8 @@ pub struct DropStakeReward<'info> {
     registry_program: AccountInfo<'info>,
     #[account(address = lockup::ID)]
     lockup_program: AccountInfo<'info>,
+    clock: Sysvar<'info, Clock>,
+    rent: Sysvar<'info, Rent>,
 }
 
 // Don't bother doing validation on the individual accounts. Allow the stake
@@ -364,7 +490,7 @@ pub struct DropStakeReward<'info> {
 pub struct DropStakeRewardPool<'info> {
     registrar: AccountInfo<'info>,
     reward_event_q: AccountInfo<'info>,
-    pool_mint: AccountInfo<'info>,
+    pool_mint: CpiAccount<'info, Mint>,
     vendor: AccountInfo<'info>,
     vendor_vault: AccountInfo<'info>,
 }
@@ -482,18 +608,41 @@ impl<'info> From<&Distribute<'info>> for CpiContext<'_, '_, '_, 'info, token::Bu
     }
 }
 
-/*
-impl<'info> From<&DropStakeReward<'info>>
-for CpiContext<'_, '_, '_, 'info, registry::DropReward<'info>>
-{
-fn from(accs: &DropStakeReward<'info>) -> Self {
-let program = accs.registry_program.clone();
-let accounts = registry::DropReward {
-registrar:
-                };
+impl<'info> DropStakeReward<'info> {
+    fn into_srm_reward(&self) -> CpiContext<'_, '_, '_, 'info, registry::DropReward<'info>> {
+        let program = self.registry_program.clone();
+        let accounts = registry::DropReward {
+            registrar: ProgramAccount::try_from(&self.srm.registrar).unwrap(),
+            reward_event_q: ProgramAccount::try_from(&self.srm.reward_event_q).unwrap(),
+            pool_mint: self.srm.pool_mint.clone(),
+            vendor: ProgramAccount::try_from(&self.srm.vendor).unwrap(),
+            vendor_vault: CpiAccount::try_from(&self.srm.vendor_vault).unwrap(),
+            depositor: self.stake.to_account_info(),
+            depositor_authority: self.officer.to_account_info(),
+            token_program: self.token_program.clone(),
+            clock: self.clock.clone(),
+            rent: self.rent.clone(),
+        };
         CpiContext::new(program, accounts)
     }
-}*/
+
+    fn into_msrm_reward(&self) -> CpiContext<'_, '_, '_, 'info, registry::DropReward<'info>> {
+        let program = self.registry_program.clone();
+        let accounts = registry::DropReward {
+            registrar: ProgramAccount::try_from(&self.msrm.registrar).unwrap(),
+            reward_event_q: ProgramAccount::try_from(&self.msrm.reward_event_q).unwrap(),
+            pool_mint: self.msrm.pool_mint.clone(),
+            vendor: ProgramAccount::try_from(&self.msrm.vendor).unwrap(),
+            vendor_vault: CpiAccount::try_from(&self.msrm.vendor_vault).unwrap(),
+            depositor: self.stake.to_account_info(),
+            depositor_authority: self.officer.to_account_info(),
+            token_program: self.token_program.clone(),
+            clock: self.clock.clone(),
+            rent: self.rent.clone(),
+        };
+        CpiContext::new(program, accounts)
+    }
+}
 
 // Events.
 
@@ -512,6 +661,8 @@ pub struct OfficerDidCreate {
 pub enum ErrorCode {
     #[msg("Distribution does not add to 100")]
     InvalidDistribution,
+    #[msg("u128 cannot be converted into u64")]
+    U128CannotConvert,
 }
 
 // Access control.
