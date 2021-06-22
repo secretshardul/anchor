@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Keypair;
 use std::collections::BTreeMap;
+use std::convert::TryFrom;
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::Path;
@@ -104,7 +105,7 @@ struct _Config {
     provider: Provider,
     test: Option<Test>,
     scripts: Option<ScriptsConfig>,
-    clusters: Option<BTreeMap<String, BTreeMap<String, String>>>,
+    clusters: Option<BTreeMap<String, BTreeMap<String, serde_json::Value>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -162,22 +163,27 @@ impl FromStr for Config {
 
 fn ser_clusters(
     clusters: &BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>,
-) -> BTreeMap<String, BTreeMap<String, String>> {
+) -> BTreeMap<String, BTreeMap<String, serde_json::Value>> {
     clusters
         .iter()
         .map(|(cluster, programs)| {
             let cluster = cluster.to_string();
             let programs = programs
                 .iter()
-                .map(|(name, deployment)| (name.clone(), deployment.program_id.to_string()))
-                .collect::<BTreeMap<String, String>>();
+                .map(|(name, deployment)| {
+                    (
+                        name.clone(),
+                        serde_json::to_value(&_ProgramDeployment::from(deployment)).unwrap(),
+                    )
+                })
+                .collect::<BTreeMap<String, serde_json::Value>>();
             (cluster, programs)
         })
-        .collect::<BTreeMap<String, BTreeMap<String, String>>>()
+        .collect::<BTreeMap<String, BTreeMap<String, serde_json::Value>>>()
 }
 
 fn deser_clusters(
-    clusters: BTreeMap<String, BTreeMap<String, String>>,
+    clusters: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
 ) -> Result<BTreeMap<Cluster, BTreeMap<String, ProgramDeployment>>> {
     clusters
         .iter()
@@ -188,10 +194,17 @@ fn deser_clusters(
                 .map(|(name, program_id)| {
                     Ok((
                         name.clone(),
-                        ProgramDeployment {
-                            name: name.clone(),
-                            program_id: program_id.parse()?,
-                        },
+                        ProgramDeployment::try_from(match &program_id {
+                            serde_json::Value::String(address) => _ProgramDeployment {
+                                address: address.parse()?,
+                                idl: None,
+                            },
+                            serde_json::Value::Object(_) => {
+                                serde_json::from_value(program_id.clone())
+                                    .map_err(|_| anyhow!("Unable to read toml"))?
+                            }
+                            _ => return Err(anyhow!("Invalid toml type")),
+                        })?,
                     ))
                 })
                 .collect::<Result<BTreeMap<String, ProgramDeployment>>>()?;
@@ -278,8 +291,33 @@ impl Program {
 
 #[derive(Debug, Default)]
 pub struct ProgramDeployment {
-    pub name: String,
-    pub program_id: Pubkey,
+    pub address: Pubkey,
+    pub idl: Option<String>,
+}
+
+impl TryFrom<_ProgramDeployment> for ProgramDeployment {
+    type Error = anyhow::Error;
+    fn try_from(pd: _ProgramDeployment) -> Result<Self, Self::Error> {
+        Ok(ProgramDeployment {
+            address: pd.address.parse()?,
+            idl: pd.idl,
+        })
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct _ProgramDeployment {
+    pub address: String,
+    pub idl: Option<String>,
+}
+
+impl From<&ProgramDeployment> for _ProgramDeployment {
+    fn from(pd: &ProgramDeployment) -> Self {
+        Self {
+            address: pd.address.to_string(),
+            idl: pd.idl.clone(),
+        }
+    }
 }
 
 pub struct ProgramWorkspace {

@@ -1619,17 +1619,31 @@ fn cluster(_cmd: ClusterCommand) -> Result<()> {
 fn shell(cfg_override: &ConfigOverride) -> Result<()> {
     with_workspace(cfg_override, |cfg, _path, _cargo| {
         let programs = {
-            let idls: HashMap<String, Idl> = read_all_programs()?
+            let mut idls: HashMap<String, Idl> = read_all_programs()?
                 .iter()
                 .map(|program| (program.idl.name.clone(), program.idl.clone()))
                 .collect();
+            // Insert all manually specified idls into the idl map.
+            cfg.clusters.get(&cfg.provider.cluster).map(|programs| {
+                let _ = programs
+                    .iter()
+                    .map(|(name, pd)| {
+                        if let Some(idl_fp) = &pd.idl {
+                            let file_str =
+                                std::fs::read_to_string(idl_fp).expect("Unable to read IDL file");
+                            let idl = serde_json::from_str(&file_str).expect("Idl not readable");
+                            idls.insert(name.clone(), idl);
+                        }
+                    })
+                    .collect::<Vec<_>>();
+            });
             match cfg.clusters.get(&cfg.provider.cluster) {
                 None => Vec::new(),
                 Some(programs) => programs
                     .iter()
                     .map(|(name, program_deployment)| ProgramWorkspace {
                         name: name.to_string(),
-                        program_id: program_deployment.program_id,
+                        program_id: program_deployment.address,
                         idl: match idls.get(name) {
                             None => {
                                 println!("Unable to find IDL for {}", name);

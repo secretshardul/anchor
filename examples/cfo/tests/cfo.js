@@ -1,9 +1,11 @@
 const assert = require("assert");
 const { Token } = require("@solana/spl-token");
-const utils = require("./utils");
 const anchor = require("@project-serum/anchor");
 const serumCmn = require("@project-serum/common");
+const { Market } = require("@project-serum/serum");
 const { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } = anchor.web3;
+const utils = require("./utils");
+const { setupStakePool } = require('./utils/stake');
 
 const DEX_PID = new PublicKey("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin");
 const SWAP_PID = new PublicKey("22Y43yTVxuUkoRKdm9thyRhQ3SdgQS7c7kB6UNCiaczD");
@@ -14,6 +16,7 @@ const REGISTRY_PID = new PublicKey(
 const LOCKUP_PID = new PublicKey(
   "6ebQNeTPZ1j7k3TtkCCtEPRvG7GQsucQrZ7sSEDQi9Ks"
 );
+const FEES = "6160355581";
 
 describe("cfo", () => {
   anchor.setProvider(anchor.Provider.env());
@@ -62,8 +65,25 @@ describe("cfo", () => {
     assert.ok(tokenAccount.amount.toString() === "10000902263700");
   });
 
+  it("BOILERPLATE: Executes trades to generate fees", async () => {
+    await utils.runTradeBot(
+      ORDERBOOK_ENV.marketA._decoded.ownAddress,
+      program.provider,
+      1
+    );
+    let marketClient = await Market.load(
+      program.provider.connection,
+      ORDERBOOK_ENV.marketA._decoded.ownAddress,
+      { commitment: "recent" },
+      DEX_PID
+    );
+    assert.ok(
+      marketClient._decoded.quoteFeesAccrued.toString() === FEES
+    );
+  });
+
   it("BOILERPLATE: Sets up the staking pools", async () => {
-    // TODO
+		await setupStakePool();
     registrar = ORDERBOOK_ENV.usdc;
     msrmRegistrar = registrar;
   });
@@ -78,7 +98,7 @@ describe("cfo", () => {
     const srmVault = await anchor.utils.publicKey.associated(
       program.programId,
       officer,
-      ORDERBOOK_ENV.mintA,
+      ORDERBOOK_ENV.mintA
     );
     const stake = await anchor.utils.publicKey.associated(
       program.programId,
@@ -135,7 +155,7 @@ describe("cfo", () => {
         rent: SYSVAR_RENT_PUBKEY,
       },
     });
-		const tokenAccount = await TOKEN_CLIENT.getAccountInfo(token);
+    const tokenAccount = await TOKEN_CLIENT.getAccountInfo(token);
     assert.ok(tokenAccount.state === 1);
     assert.ok(tokenAccount.isInitialized);
   });
@@ -171,7 +191,7 @@ describe("cfo", () => {
     );
     assert.ok(
       afterTokenAccount.amount.sub(beforeTokenAccount.amount).toString() ===
-        "10000000000"
+        FEES
     );
   });
 

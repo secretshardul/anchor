@@ -83,12 +83,15 @@ const workspace = new Proxy({} as any, {
 
 function attachWorkspaceOverride(
   workspaceCache: { [key: string]: Program },
-  overrideConfig: { [key: string]: string },
+  overrideConfig: { [key: string]: string | { address: string } },
   idlMap: Map<string, Idl>
 ) {
   Object.keys(overrideConfig).forEach((programName) => {
     const wsProgramName = camelCase(programName, { pascalCase: true });
-    const overrideAddress = new PublicKey(overrideConfig[programName]);
+    const entry = overrideConfig[programName];
+    const overrideAddress = new PublicKey(
+      typeof entry === "string" ? entry : entry.address
+    );
     workspaceCache[wsProgramName] = new Program(
       idlMap.get(programName),
       overrideAddress

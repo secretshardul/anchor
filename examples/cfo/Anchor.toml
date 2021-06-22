@@ -2,13 +2,27 @@
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
+[clusters.localnet]
+registry = { address = "GrAkKfEpTKQuVHG2Y97Y2FF4i7y7Q5AHLK94JBy7Y5yv", idl = "./deps/stake/target/idl/registry.json" }
+lockup = { address = "6ebQNeTPZ1j7k3TtkCCtEPRvG7GQsucQrZ7sSEDQi9Ks", idl = "./deps/stake/target/idl/lockup.json" }
+
 [scripts]
+#
+# Testing.
+#
 test = "anchor run build && anchor test --skip-build"
+#
+# Build the program and all CPI dependencies.
+#
 build = "anchor run build-deps && anchor build"
 build-deps = "anchor run build-dex && anchor run build-swap && anchor run build-stake"
 build-dex = "pushd deps/serum-dex/dex/ && cargo build-bpf && popd"
 build-swap = "cd deps/swap && pwd && anchor build && cd ../../"
 build-stake = "pushd deps/stake && anchor build && popd"
+#
+# Runs a localnet with all the programs deployed.
+#
+localnet = "./scripts/localnet.sh"
 
 [[test.genesis]]
 address = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
