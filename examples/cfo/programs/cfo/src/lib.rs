@@ -1,5 +1,6 @@
 use anchor_lang::associated_seeds;
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::sysvar::instructions as tx_instructions;
 use anchor_lang::solana_program::{system_instruction, system_program};
 use anchor_spl::token::{self, Mint, TokenAccount};
 use anchor_spl::{dex, mint};
@@ -65,7 +66,7 @@ pub mod cfo {
 
     /// Convert the CFO's entire non-SRM token balance into USDC.
     /// Assumes USDC is the quote currency.
-    #[access_control(is_not_trading())]
+    #[access_control(is_not_trading(&ctx.accounts.instructions))]
     pub fn swap_to_usdc<'info>(
         ctx: Context<'_, '_, '_, 'info, SwapToUsdc<'info>>,
         min_exchange_rate: ExchangeRate,
@@ -86,7 +87,7 @@ pub mod cfo {
 
     /// Convert the CFO's entire token balance into SRM.
     /// Assumes SRM is the base currency.
-    #[access_control(is_not_trading())]
+    #[access_control(is_not_trading(&ctx.accounts.instructions))]
     pub fn swap_to_srm<'info>(
         ctx: Context<'_, '_, '_, 'info, SwapToSrm<'info>>,
         min_exchange_rate: ExchangeRate,
@@ -418,6 +419,8 @@ pub struct SwapToUsdc<'info> {
     #[account(address = token::ID)]
     token_program: AccountInfo<'info>,
     rent: Sysvar<'info, Rent>,
+    #[account(address = tx_instructions::ID)]
+    instructions: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -447,6 +450,8 @@ pub struct SwapToSrm<'info> {
     #[account(address = token::ID)]
     token_program: AccountInfo<'info>,
     rent: Sysvar<'info, Rent>,
+    #[account(address = tx_instructions::ID)]
+    instructions: AccountInfo<'info>,
 }
 
 #[derive(Accounts)]
@@ -734,6 +739,7 @@ impl<'info> Distribute<'info> {
 pub struct DistributionDidChange {
     distribution: Distribution,
 }
+
 #[event]
 pub struct OfficerDidCreate {
     pubkey: Pubkey,
@@ -747,6 +753,12 @@ pub enum ErrorCode {
     InvalidDistribution,
     #[msg("u128 cannot be converted into u64")]
     U128CannotConvert,
+    #[msg("Only one instruction is allowed for this transaction")]
+    TooManyInstructions,
+    #[msg("Not enough SRM has been accumulated to distribute")]
+    InsufficientDistributionAmount,
+    #[msg("Must drop more SRM onto the stake pool")]
+    InsufficientStakeReward,
 }
 
 // Access control.
@@ -759,17 +771,27 @@ fn is_distribution_valid(d: &Distribution) -> Result<()> {
 }
 
 fn is_distribution_ready(accounts: &Distribute) -> Result<()> {
-    // todo
+    if accounts.srm_vault.amount < 1_000_000 {
+        return Err(ErrorCode::InsufficientDistributionAmount.into());
+    }
     Ok(())
 }
 
-fn is_not_trading() -> Result<()> {
-    // todo
-    Ok(())
+// `ixs` must be the Instructions sysvar.
+fn is_not_trading(ixs: &AccountInfo) -> Result<()> {
+    let data = ixs.try_borrow_data()?;
+    match tx_instructions::load_instruction_at(1, &data) {
+        Ok(_) => Err(ErrorCode::TooManyInstructions.into()),
+        Err(_) => Ok(()),
+    }
 }
 
 fn is_stake_reward_ready(accounts: &DropStakeReward) -> Result<()> {
-    // todo
+    // Min drop is 15,0000 SRM.
+    let min_reward: u64 = 15_000_000_000;
+    if accounts.stake.amount < min_reward {
+        return Err(ErrorCode::InsufficientStakeReward.into());
+    }
     Ok(())
 }
 
